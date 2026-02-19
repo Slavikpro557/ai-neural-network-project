@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Project data (large files)
+books/
+models/
+checkpoints/
+reports/
+*.pt
+*.pth
+
+# Cache
+.cache/
+*.custom_catalog.json
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Temp
+test.txt
+datasets_db.json
