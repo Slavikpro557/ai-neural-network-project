@@ -288,7 +288,11 @@ html = r'''<!DOCTYPE html>
             <h2 data-i18n="manage_datasets">Управление датасетами</h2>
             <div class="info-card">
                 <h3 data-i18n="upload_files">Загрузить файлы</h3>
-                <input type="file" id="book_file" accept=".txt,.csv,.json,.jsonl,.pdf,.jpg,.jpeg,.png" onchange="uploadBook()" style="margin:10px 0;">
+                <input type="file" id="book_file" accept=".txt,.csv,.json,.jsonl,.pdf,.jpg,.jpeg,.png" onchange="uploadBook()" style="display:none;">
+                <div style="display:flex;align-items:center;gap:12px;margin:10px 0;">
+                    <button class="btn btn-outline" onclick="document.getElementById('book_file').click()" data-i18n="btn_choose_file">Выбрать файл</button>
+                    <span id="chosen_file_name" style="color:#888;font-size:0.9em;" data-i18n="no_file_chosen">Файл не выбран</span>
+                </div>
                 <div class="recommended" data-i18n="supported_formats">Поддерживаются: .txt, .csv, .json, .jsonl, .pdf, .jpg, .png</div>
                 <div id="upload_status"></div>
             </div>
@@ -612,6 +616,7 @@ async function createModel() {
 async function uploadBook() {
     const fileInput = document.getElementById('book_file');
     if (!fileInput.files[0]) return;
+    document.getElementById('chosen_file_name').textContent = fileInput.files[0].name;
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
     try {
@@ -720,14 +725,9 @@ function startStatusUpdates() {
 
 function formatETA(s) {
     if (s < 0) return '--';
-    if (currentLang === 'en') {
-        if (s < 60) return s + 's';
-        if (s < 3600) return Math.floor(s/60) + 'min';
-        return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
-    }
-    if (s < 60) return s + ' сек';
-    if (s < 3600) return Math.floor(s/60) + ' мин';
-    return Math.floor(s/3600) + 'ч ' + Math.floor((s%3600)/60) + 'м';
+    if (s < 60) return s + ' ' + t('eta_sec');
+    if (s < 3600) return Math.floor(s/60) + ' ' + t('eta_min');
+    return Math.floor(s/3600) + t('eta_h') + ' ' + Math.floor((s%3600)/60) + t('eta_m');
 }
 
 function updateMilestones(pct) {
@@ -812,7 +812,7 @@ async function generateText() {
             document.getElementById('generated_output').textContent = data.generated_text || 'Error';
         }
         if (data.quality_metrics && data.quality_metrics.components) {
-            renderRadar('qualityRadar', [data.quality_metrics], ['Генерация']);
+            renderRadar('qualityRadar', [data.quality_metrics], [t('radar_generation')]);
             document.getElementById('quality_radar_container').style.display = 'block';
         }
     } catch(e) { document.getElementById('generated_output').textContent = 'Error: ' + e.message; }
@@ -1077,6 +1077,10 @@ var TRANSLATIONS = {
         compare_default_prompt: 'Искусственный интеллект',
         placeholder_name: 'Название',
         uploaded: 'Загружено',
+        btn_choose_file: 'Выбрать файл',
+        no_file_chosen: 'Файл не выбран',
+        radar_generation: 'Генерация',
+        eta_sec: 'сек', eta_min: 'мин', eta_h: 'ч', eta_m: 'м',
         btn_attach: '+ Прикрепить', btn_detach: 'Открепить',
         filter_all: 'Все',
         no_datasets: 'Нет датасетов.', no_attached: 'Нет прикреплённых.',
@@ -1201,6 +1205,10 @@ var TRANSLATIONS = {
         compare_default_prompt: 'Artificial intelligence',
         placeholder_name: 'Name',
         uploaded: 'Uploaded',
+        btn_choose_file: 'Choose file',
+        no_file_chosen: 'No file chosen',
+        radar_generation: 'Generation',
+        eta_sec: 's', eta_min: 'min', eta_h: 'h', eta_m: 'm',
         btn_attach: '+ Attach', btn_detach: 'Detach',
         filter_all: 'All',
         no_datasets: 'No datasets.', no_attached: 'No attached datasets.',
