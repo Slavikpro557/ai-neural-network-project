@@ -193,7 +193,7 @@
                 <button class="btn btn-primary" onclick="searchHF()" data-i18n="btn_search_hf">Поиск HF</button>
             </div>
             <div class="search-box" style="margin-top:10px;">
-                <input type="text" id="custom_url_name" placeholder="Название" style="flex:0.3;">
+                <input type="text" id="custom_url_name" placeholder="Название" style="flex:0.3;" data-i18n-placeholder="placeholder_name">
                 <input type="text" id="custom_url" placeholder="URL (https://...)" style="flex:0.5;">
                 <select id="custom_url_lang" style="flex:0.15;padding:10px;background:#16213e;color:#e0e0e0;border:1px solid #444;border-radius:8px;">
                     <option value="auto">Auto</option><option value="ru">RU</option><option value="en">EN</option>
@@ -330,7 +330,7 @@
 
             <div class="status-box">
                 <h3 data-i18n="status_training">Статус обучения</h3>
-                <div class="status-item"><span class="status-label" data-i18n="status_label">Статус:</span><span class="status-value" id="is_training">Не запущено</span></div>
+                <div class="status-item"><span class="status-label" data-i18n="status_label">Статус:</span><span class="status-value" id="is_training" data-i18n="status_idle">Не запущено</span></div>
                 <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%">0%</div></div>
                 <div class="status-item"><span class="status-label" data-i18n="iteration_label">Итерация:</span><span class="status-value" id="current_iteration">0 / 0</span></div>
                 <div class="status-item"><span class="status-label" data-i18n="loss_label">Loss:</span><span class="status-value" id="current_loss">--</span></div>
@@ -394,12 +394,12 @@
         <!-- СРАВНЕНИЕ -->
         <div id="compare" class="tab-content">
             <h2 data-i18n="compare_checkpoints">Сравнение итераций</h2>
-            <div class="form-group"><label>Модель:</label><select id="compare_model_name" onchange="loadCheckpoints()"></select></div>
+            <div class="form-group"><label data-i18n="select_model">Модель:</label><select id="compare_model_name" onchange="loadCheckpoints()"></select></div>
             <div class="grid">
-                <div class="form-group"><label>Чекпоинт A:</label><select id="checkpoint_a"></select></div>
-                <div class="form-group"><label>Чекпоинт B:</label><select id="checkpoint_b"></select></div>
+                <div class="form-group"><label data-i18n="checkpoint_a_label">Чекпоинт A:</label><select id="checkpoint_a"></select></div>
+                <div class="form-group"><label data-i18n="checkpoint_b_label">Чекпоинт B:</label><select id="checkpoint_b"></select></div>
             </div>
-            <div class="form-group"><label>Промпт:</label><input type="text" id="compare_prompt" value="Искусственный интеллект"></div>
+            <div class="form-group"><label data-i18n="compare_prompt_label">Промпт:</label><input type="text" id="compare_prompt" value="Искусственный интеллект" data-i18n-value="compare_default_prompt"></div>
             <button class="btn btn-primary" onclick="compareCheckpoints()" data-i18n="btn_compare">Сравнить</button>
             <div id="compare_results" style="display:none;margin-top:15px;">
                 <div class="compare-grid">
@@ -511,7 +511,7 @@ async function previewDS(id) {
     document.getElementById('preview_modal').classList.add('active');
     const resp = await fetch('/dataset_catalog/preview/' + id + '?lines=30');
     const data = await resp.json();
-    document.getElementById('preview_title').textContent = data.name || 'Превью';
+    document.getElementById('preview_title').textContent = data.name || t('preview');
     document.getElementById('preview_content').textContent = (data.lines || []).join('\n');
 }
 function closePreview() { document.getElementById('preview_modal').classList.remove('active'); }
@@ -563,7 +563,7 @@ async function loadHWRecommendation() {
     try {
         const resp = await fetch('/hardware_recommendation');
         const data = await resp.json();
-        document.getElementById('hw_recommendation').innerHTML = '<div class="alert alert-info">Рекомендация: <strong>' + data.preset.toUpperCase() + '</strong> — ' + data.reason + '</div>';
+        document.getElementById('hw_recommendation').innerHTML = '<div class="alert alert-info">' + t('hw_recommendation') + ': <strong>' + data.preset.toUpperCase() + '</strong> — ' + data.reason + '</div>';
     } catch(e) {}
 }
 
@@ -597,7 +597,7 @@ async function uploadBook() {
         const resp = await fetch('/upload_book', { method: 'POST', body: formData });
         const data = await resp.json();
         if (data.status === 'success') {
-            document.getElementById('upload_status').innerHTML = '<div class="alert alert-success">Загружено: ' + data.filename + ' (' + (data.size/1024).toFixed(1) + ' KB)</div>';
+            document.getElementById('upload_status').innerHTML = '<div class="alert alert-success">' + t('uploaded') + ': ' + data.filename + ' (' + (data.size/1024).toFixed(1) + ' KB)</div>';
             loadDatasets();
         }
     } catch(e) { document.getElementById('upload_status').innerHTML = '<div class="alert alert-error">' + e.message + '</div>'; }
@@ -1049,6 +1049,13 @@ var TRANSLATIONS = {
         preview: 'Превью',
         btn_close: 'Закрыть',
         hw_recommendation: 'Рекомендация',
+        status_idle: 'Не запущено',
+        checkpoint_a_label: 'Чекпоинт A:',
+        checkpoint_b_label: 'Чекпоинт B:',
+        compare_prompt_label: 'Промпт:',
+        compare_default_prompt: 'Искусственный интеллект',
+        placeholder_name: 'Название',
+        uploaded: 'Загружено',
         btn_attach: '+ Прикрепить', btn_detach: 'Открепить',
         filter_all: 'Все',
         no_datasets: 'Нет датасетов.', no_attached: 'Нет прикреплённых.',
@@ -1166,6 +1173,13 @@ var TRANSLATIONS = {
         preview: 'Preview',
         btn_close: 'Close',
         hw_recommendation: 'Recommendation',
+        status_idle: 'Not running',
+        checkpoint_a_label: 'Checkpoint A:',
+        checkpoint_b_label: 'Checkpoint B:',
+        compare_prompt_label: 'Prompt:',
+        compare_default_prompt: 'Artificial intelligence',
+        placeholder_name: 'Name',
+        uploaded: 'Uploaded',
         btn_attach: '+ Attach', btn_detach: 'Detach',
         filter_all: 'All',
         no_datasets: 'No datasets.', no_attached: 'No attached datasets.',
@@ -1205,6 +1219,12 @@ function switchLanguage(lang) {
         var key = el.getAttribute('data-i18n-placeholder');
         if (TRANSLATIONS[lang] && TRANSLATIONS[lang][key]) {
             el.placeholder = TRANSLATIONS[lang][key];
+        }
+    });
+    document.querySelectorAll('[data-i18n-value]').forEach(function(el) {
+        var key = el.getAttribute('data-i18n-value');
+        if (TRANSLATIONS[lang] && TRANSLATIONS[lang][key]) {
+            el.value = TRANSLATIONS[lang][key];
         }
     });
     // Update dynamic content using t()
