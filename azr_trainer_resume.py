@@ -9,7 +9,7 @@ AZR Trainer с поддержкой:
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import numpy as np
 from pathlib import Path
 import json
@@ -153,6 +153,22 @@ class AZRTrainer:
             except Exception:
                 continue
 
+    @torch.no_grad()
+    def _compute_val_loss(self) -> float:
+        """Validation loss на отложенной выборке"""
+        if not hasattr(self, '_val_loader'):
+            return 0.0
+        self.model.eval()
+        total, n = 0.0, 0
+        for batch in self._val_loader:
+            x, y = batch
+            x, y = x.to(self.device), y.to(self.device)
+            _, loss = self.model(x, y)
+            if loss is not None:
+                total += loss.item()
+                n += 1
+        return total / max(n, 1)
+
     def _get_memory_mb(self) -> float:
         """Получить использование памяти"""
         try:
@@ -282,12 +298,20 @@ class AZRTrainer:
             print("ERROR: No samples in dataset! Check your text data.")
             return []
 
-        # Выделяем 5% на валидацию для перплексии
-        val_size = max(1, len(dataset) // 20)
+        # Train / validation split (90/10)
+        val_size = max(1, int(len(dataset) * 0.10))
+        train_size = len(dataset) - val_size
+        train_dataset, val_dataset = random_split(
+            dataset, [train_size, val_size],
+            generator=torch.Generator().manual_seed(42)
+        )
         self.eval_data = [dataset.samples[i] for i in range(min(val_size, len(dataset.samples)))]
+        self._val_dataset = val_dataset
 
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+        dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                num_workers=0, pin_memory=False)
+        self._val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
+                                      num_workers=0, pin_memory=False)
 
         # Обновляем RewardComputer референсными данными
         self.reward_computer.update_reference(texts[:100])
@@ -328,17 +352,22 @@ class AZRTrainer:
 
                 self.scheduler.step()
 
+                val_loss = self._compute_val_loss()
+                overfit = " ⚠ OVERFIT" if val_loss > avg_loss * 1.1 else ""
+
                 self.training_history.append({
                     'epoch': epoch,
                     'iteration': self.iteration,
                     'loss': avg_loss,
+                    'val_loss': val_loss,
                     'reward': avg_reward,
                     'lr': self.optimizer.param_groups[0]['lr'],
                     'timestamp': datetime.now().isoformat()
                 })
 
                 print(f"Epoch {epoch} | Iter {self.iteration}/{max_iterations} | "
-                      f"Loss: {avg_loss:.4f} | Reward: {avg_reward:.4f} | "
+                      f"Loss: {avg_loss:.4f} | Val: {val_loss:.4f}{overfit} | "
+                      f"Reward: {avg_reward:.4f} | "
                       f"LR: {self.optimizer.param_groups[0]['lr']:.6f} | "
                       f"Speed: {self._tokens_per_sec:.0f} tok/s")
 
