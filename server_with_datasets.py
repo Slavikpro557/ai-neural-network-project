@@ -20,6 +20,8 @@ import uvicorn
 from datetime import datetime
 import threading
 import shutil
+import subprocess
+import sys
 
 from model import CustomTransformerLM, count_parameters
 from tokenizer import SimpleTokenizer
@@ -1113,19 +1115,287 @@ async def get_hardware_recommendation():
     }
 
 
+# ─────────────────────────────────────────
+# GPU — установка и активация из UI
+# ─────────────────────────────────────────
+
+CUDA_INDEXES = [
+    "https://download.pytorch.org/whl/cu124",
+    "https://download.pytorch.org/whl/cu121",
+]
+
+gpu_install_status = {
+    "is_installing": False,
+    "progress": 0,
+    "message": "",
+    "success": False,
+    "error": ""
+}
+
+
+def _run_uv(args: list, timeout: int = 60) -> subprocess.CompletedProcess:
+    """Запускает uv через текущий Python: python -m uv <args>"""
+    return subprocess.run(
+        [sys.executable, "-m", "uv"] + args,
+        capture_output=True, text=True, timeout=timeout
+    )
+
+
+def _find_cuda_index_for_python(python_exe: str) -> str:
+    """Проверяет, какой CUDA-индекс PyTorch поддерживает данный python_exe."""
+    for idx in CUDA_INDEXES:
+        try:
+            r = subprocess.run(
+                [python_exe, "-m", "pip", "index", "versions", "torch",
+                 "--index-url", idx],
+                capture_output=True, text=True, timeout=20
+            )
+            if r.returncode == 0 and "torch" in r.stdout.lower():
+                return idx
+        except Exception:
+            continue
+    return ""
+
+
+def _get_venv_python(venv_dir: Path) -> str:
+    """Путь к python.exe внутри venv (Windows / Linux)."""
+    for p in [venv_dir / "Scripts" / "python.exe",
+              venv_dir / "bin" / "python"]:
+        if p.exists():
+            return str(p)
+    return ""
+
+
+@app.get("/gpu_status")
+async def get_gpu_status():
+    """Полный статус GPU: CUDA, версия Python, наличие GPU-venv."""
+    cuda_available = torch.cuda.is_available()
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    venv_ready = bool(_get_venv_python(BASE_DIR / ".venv-gpu"))
+    return {
+        "cuda_available": cuda_available,
+        "pytorch_version": torch.__version__,
+        "python_version": py_ver,
+        "gpu_name": torch.cuda.get_device_name(0) if cuda_available else None,
+        "venv_gpu_ready": venv_ready,
+        "install_status": gpu_install_status,
+    }
+
+
+@app.post("/gpu_install")
+async def install_gpu_pytorch():
+    """
+    Универсальная установка PyTorch CUDA для любой версии Python.
+    Алгоритм:
+      1. Если текущий Python поддерживает CUDA-колёса — ставим прямо в него.
+      2. Иначе (Python 3.14+): через uv скачиваем Python 3.13, создаём .venv-gpu,
+         ставим туда torch+CUDA, создаём start_gpu.bat / start_gpu.sh.
+    """
+    global gpu_install_status
+
+    if gpu_install_status["is_installing"]:
+        return {"status": "already_installing", "message": "Установка уже идёт"}
+    if torch.cuda.is_available():
+        return {"status": "already_available", "message": "GPU уже доступен!"}
+
+    def _upd(progress: int, message: str):
+        gpu_install_status["progress"] = progress
+        gpu_install_status["message"] = message
+
+    def do_install():
+        global gpu_install_status
+        gpu_install_status.update({
+            "is_installing": True, "progress": 2,
+            "message": "Запускаем...", "success": False, "error": ""
+        })
+
+        try:
+            # ── Путь А: текущий Python поддерживает CUDA ────────────────────
+            _upd(5, "Шаг 1/3: Проверяем CUDA-совместимость текущего Python...")
+            cur_idx = _find_cuda_index_for_python(sys.executable)
+
+            if cur_idx:
+                cuda_ver = "12.4" if "cu124" in cur_idx else "12.1"
+                _upd(15, "Удаляем CPU-версию PyTorch...")
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "uninstall",
+                     "torch", "torchvision", "torchaudio", "-y"],
+                    capture_output=True, timeout=120
+                )
+                _upd(30, f"Скачиваем PyTorch CUDA {cuda_ver} (~2 ГБ)...")
+                r = subprocess.run(
+                    [sys.executable, "-m", "pip", "install",
+                     "torch", "torchvision", "--index-url", cur_idx],
+                    capture_output=True, text=True, timeout=900
+                )
+                if r.returncode == 0:
+                    gpu_install_status.update({
+                        "progress": 100,
+                        "message": "PyTorch CUDA installed! Restart the server.",
+                        "success": True
+                    })
+                else:
+                    err = (r.stderr or r.stdout or "")[-600:]
+                    gpu_install_status.update({
+                        "progress": -1,
+                        "message": "pip install error. See error field.",
+                        "error": err
+                    })
+                return
+
+            # ── Путь Б: несовместимый Python (3.14+) → uv → Python 3.13 ────
+            _upd(8, "Current Python incompatible with CUDA.\nStep 1/5: Installing uv...")
+
+            uv_check = _run_uv(["--version"], timeout=10)
+            if uv_check.returncode != 0:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "uv", "-q"],
+                    capture_output=True, timeout=90
+                )
+
+            _upd(15, "Step 2/5: Downloading Python 3.13 (~30 MB)...")
+            py_target = "3.13"
+            r = _run_uv(["python", "install", py_target], timeout=300)
+            if r.returncode != 0:
+                py_target = "3.12"
+                r = _run_uv(["python", "install", py_target], timeout=300)
+                if r.returncode != 0:
+                    gpu_install_status.update({
+                        "progress": -1,
+                        "message": f"Failed to download Python {py_target} via uv.\n{r.stderr[-300:]}",
+                        "error": r.stderr[-300:]
+                    })
+                    return
+
+            _upd(35, f"Step 3/5: Creating GPU environment (Python {py_target})...")
+            venv_dir = BASE_DIR / ".venv-gpu"
+            r = _run_uv(["venv", str(venv_dir), "--python", py_target, "--clear"], timeout=60)
+            if r.returncode != 0:
+                gpu_install_status.update({
+                    "progress": -1,
+                    "message": f"Failed to create venv.\n{r.stderr[-300:]}",
+                    "error": r.stderr[-300:]
+                })
+                return
+
+            venv_python = _get_venv_python(venv_dir)
+            if not venv_python:
+                gpu_install_status.update({
+                    "progress": -1,
+                    "message": "venv created but python.exe not found.",
+                    "error": "venv python not found"
+                })
+                return
+
+            # Python 3.13 supports cu124; use uv pip (no pip needed in venv)
+            idx = CUDA_INDEXES[0]  # cu124
+            cuda_ver = "12.4"
+            _upd(45, f"Step 4/5: Downloading PyTorch CUDA {cuda_ver} (~2 GB)...")
+            r = _run_uv(
+                ["pip", "install", "torch", "torchvision",
+                 "--python", venv_python,
+                 "--index-url", idx],
+                timeout=900
+            )
+            if r.returncode != 0:
+                idx = CUDA_INDEXES[1]
+                cuda_ver = "12.1"
+                _upd(50, f"Step 4/5: cu124 failed, trying CUDA {cuda_ver}...")
+                r = _run_uv(
+                    ["pip", "install", "torch", "torchvision",
+                     "--python", venv_python,
+                     "--index-url", idx],
+                    timeout=900
+                )
+            if r.returncode != 0:
+                err = (r.stderr or r.stdout or "")[-600:]
+                gpu_install_status.update({
+                    "progress": -1,
+                    "message": "PyTorch install error in venv.",
+                    "error": err
+                })
+                return
+
+            _upd(88, "Step 5/5: Installing project dependencies in venv...")
+            _run_uv(
+                ["pip", "install", "fastapi", "uvicorn[standard]", "pydantic",
+                 "--python", venv_python, "-q"],
+                timeout=180
+            )
+
+            # Create startup scripts
+            _upd(95, "Creating start_gpu.bat / start_gpu.sh...")
+            server_path = BASE_DIR / "server_with_datasets.py"
+
+            bat = f'@echo off\necho Starting AZR Trainer with GPU support...\n"{venv_python}" "{server_path}"\npause\n'
+            (BASE_DIR / "start_gpu.bat").write_text(bat, encoding="utf-8")
+
+            venv_py_sh = (venv_dir / "bin" / "python")
+            sh = f'#!/bin/bash\necho "Starting AZR Trainer with GPU support..."\n"{venv_py_sh}" "{server_path}"\n'
+            sh_path = BASE_DIR / "start_gpu.sh"
+            sh_path.write_text(sh, encoding="utf-8")
+            try:
+                sh_path.chmod(0o755)
+            except Exception:
+                pass
+
+            gpu_install_status.update({
+                "progress": 100,
+                "message": (
+                    "GPU environment ready!\n"
+                    "Close the server and restart via start_gpu.bat (Windows) "
+                    "or start_gpu.sh (Linux/Mac)."
+                ),
+                "success": True
+            })
+
+        except subprocess.TimeoutExpired:
+            gpu_install_status.update({
+                "progress": -1,
+                "message": "Timeout exceeded. Installation took too long.",
+                "error": "timeout"
+            })
+        except Exception as e:
+            gpu_install_status.update({
+                "progress": -1,
+                "message": f"Error: {e}",
+                "error": str(e)
+            })
+        finally:
+            gpu_install_status["is_installing"] = False
+
+    threading.Thread(target=do_install, daemon=True).start()
+    return {"status": "installing", "message": "Installation started."}
+
+
+# ─────────────────────────────────────────
+# Запуск
+# ─────────────────────────────────────────
+
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  AZR Model Trainer v2")
-    print("  Features: Catalog, Analytics, REINFORCE, Comparison")
-    print("=" * 60)
-    print(f"Models: {MODELS_DIR}")
-    print(f"Books: {BOOKS_DIR}")
-    print(f"Checkpoints: {CHECKPOINTS_DIR}")
-    print(f"Reports: {REPORTS_DIR}")
-    print(f"Catalog: {len(dataset_catalog.catalog)} datasets")
-    print(f"Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
-    print("=" * 60)
-    print()
-    print("  >>> Открой в браузере: http://localhost:8000 <<<")
-    print()
+    out = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else None
+    def _p(s):
+        if out:
+            out.write((s + "\n").encode("utf-8"))
+            out.flush()
+        else:
+            print(s)
+    _p("=" * 60)
+    _p("  AZR Model Trainer v2")
+    _p("  Features: Catalog, Analytics, REINFORCE, Comparison")
+    _p("=" * 60)
+    _p(f"Models: {MODELS_DIR}")
+    _p(f"Books: {BOOKS_DIR}")
+    _p(f"Checkpoints: {CHECKPOINTS_DIR}")
+    _p(f"Reports: {REPORTS_DIR}")
+    _p(f"Catalog: {len(dataset_catalog.catalog)} datasets")
+    cuda = torch.cuda.is_available()
+    _p(f"Device: {'GPU - ' + torch.cuda.get_device_name(0) if cuda else 'CPU'}")
+    if not cuda:
+        _p("")
+        _p("  ! GPU not found. Open browser and click 'Activate GPU'")
+    _p("=" * 60)
+    _p("")
+    _p("  >>> Open in browser: http://localhost:8000 <<<")
+    _p("")
     uvicorn.run(app, host="0.0.0.0", port=8000)

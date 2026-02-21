@@ -109,6 +109,32 @@
         .radar-container { height: 250px; }
         .search-box { display: flex; gap: 8px; margin-bottom: 15px; }
         .search-box input { flex: 1; }
+        /* reward прогресс-бары */
+        .reward-bar-row { margin: 7px 0; }
+        .reward-bar-label { display: flex; justify-content: space-between; font-size: 0.82em; color: #ccc; margin-bottom: 3px; }
+        .reward-bar-label .rbl-name { font-weight: 600; color: #aaa; }
+        .reward-bar-label .rbl-val { color: #e0e0e0; }
+        .reward-bar-label .rbl-delta { font-size: 0.85em; margin-left: 6px; }
+        .reward-bar-bg { width: 100%; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+        .reward-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+        /* live-карточки итераций */
+        .iter-card { background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; animation: fadeIn 0.4s ease; }
+        .iter-card:first-child { border-color: #667eea; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+        .iter-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .iter-card-num { font-weight: 700; color: #667eea; font-size: 0.85em; }
+        .iter-card-time { font-size: 0.75em; color: #555; }
+        .iter-card-metrics { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+        .iter-metric { font-size: 0.8em; }
+        .iter-metric .im-label { color: #666; }
+        .iter-metric .im-val { font-weight: 700; color: #ccc; margin-left: 3px; }
+        .iter-metric .im-delta { font-size: 0.85em; margin-left: 3px; }
+        .iter-sample { font-size: 0.78em; color: #888; font-style: italic; border-left: 2px solid #333; padding-left: 8px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* умный анализ */
+        .analysis-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid #1a1a2e; font-size: 0.85em; line-height: 1.4; }
+        .analysis-item:last-child { border-bottom: none; }
+        .analysis-icon { font-size: 1.1em; flex-shrink: 0; margin-top: 1px; }
+        .analysis-text { color: #ccc; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #0f0f23; }
         ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
@@ -128,6 +154,24 @@
                 <button class="lang-btn active" onclick="switchLanguage('ru')" id="lang_ru">RU</button>
                 <button class="lang-btn" onclick="switchLanguage('en')" id="lang_en">EN</button>
             </div>
+        </div>
+
+        <!-- GPU / CPU статус-бар -->
+        <div id="gpu-banner" style="padding:10px 20px; display:flex; align-items:center; gap:12px; background:#0f0f23; border-bottom:1px solid #222; flex-wrap:wrap;">
+            <div id="gpu-indicator" style="display:flex;align-items:center;gap:8px;">
+                <span id="gpu-dot" style="width:10px;height:10px;border-radius:50%;background:#ef4444;display:inline-block;"></span>
+                <span id="gpu-label" style="font-size:0.85em;font-weight:600;color:#aaa;" data-i18n="gpu_checking">Проверяем устройство...</span>
+            </div>
+            <div id="gpu-install-area" style="display:none;flex:1;align-items:center;gap:10px;flex-wrap:wrap;">
+                <button onclick="installGPU()" id="gpu-install-btn" class="btn btn-success" style="padding:6px 16px;font-size:0.8em;margin:0;" data-i18n="gpu_activate">⚡ Активировать GPU</button>
+                <div id="gpu-install-progress" style="display:none;flex:1;min-width:200px;">
+                    <div class="progress-bar" style="height:16px;margin:0;">
+                        <div id="gpu-progress-fill" class="progress-fill" style="width:0%;font-size:0.7em;">0%</div>
+                    </div>
+                    <div id="gpu-install-msg" style="font-size:0.75em;color:#aaa;margin-top:4px;"></div>
+                </div>
+            </div>
+            <div id="gpu-restart-notice" style="display:none;background:#10b98122;border:1px solid #10b981;border-radius:8px;padding:6px 14px;font-size:0.8em;color:#10b981;" data-i18n="gpu_restart_msg">✅ GPU установлен! Перезапусти сервер и обнови страницу.</div>
         </div>
 
         <div class="tabs">
@@ -344,9 +388,22 @@
                 <div class="status-item"><span class="status-label" data-i18n="remaining_label">Осталось:</span><span class="status-value" id="eta">--</span></div>
                 <div class="status-item"><span class="status-label" data-i18n="memory_label">Память:</span><span class="status-value" id="memory_usage">--</span></div>
             </div>
+            <!-- Умный анализ: что изменилось -->
+            <div class="status-box" id="smart_analysis_box" style="display:none;">
+                <h3>🧠 Что изменилось</h3>
+                <div id="smart_analysis_list"></div>
+            </div>
+
+            <!-- Компоненты reward — прогресс-бары -->
             <div class="status-box" id="reward_components_box" style="display:none;">
                 <h3 data-i18n="reward_components">Компоненты награды</h3>
                 <div id="reward_components_list"></div>
+            </div>
+
+            <!-- Live-лента итераций -->
+            <div class="status-box" id="iteration_feed_box" style="display:none;">
+                <h3>📍 Живая лента итераций</h3>
+                <div id="iteration_feed" style="max-height:320px;overflow-y:auto;"></div>
             </div>
         </div>
 
@@ -491,7 +548,11 @@ async function loadCatalog(category) {
     const resp = await fetch(url);
     const data = await resp.json();
     const grid = document.getElementById('catalog_grid');
-    grid.innerHTML = data.datasets.map(d => '<div class="catalog-card"><h4>' + (currentLang === 'en' ? (d.name || d.name_ru) : (d.name_ru || d.name)) + '</h4><p class="desc">' + (d.description || '') + '</p><div class="badges"><span class="badge badge-lang">' + d.language + '</span><span class="badge badge-size">' + d.size_estimate + '</span><span class="badge badge-cat">' + d.difficulty + '</span>' + (d.downloaded ? '<span class="badge badge-downloaded">' + t('already_downloaded') + '</span>' : '') + '</div><div style="margin-top:8px;">' + (d.downloaded ? '<button class="btn btn-outline" disabled>' + t('already_downloaded') + '</button>' : '<button class="btn btn-primary" onclick="downloadCatalogDS(\'' + d.id + '\')">' + t('btn_download_ds') + '</button>') + ' <button class="btn btn-outline" onclick="previewDS(\'' + d.id + '\')">' + t('btn_preview') + '</button></div></div>').join('');
+    grid.innerHTML = data.datasets.map(d => {
+        var title = currentLang === 'en' ? (d.name || d.name_ru) : (d.name_ru || d.name);
+        var desc = currentLang === 'en' ? (d.description_en || d.description || '') : (d.description || '');
+        return '<div class="catalog-card"><h4>' + title + '</h4><p class="desc">' + desc + '</p><div class="badges"><span class="badge badge-lang">' + d.language + '</span><span class="badge badge-size">' + d.size_estimate + '</span><span class="badge badge-cat">' + d.difficulty + '</span>' + (d.downloaded ? '<span class="badge badge-downloaded">' + t('already_downloaded') + '</span>' : '') + '</div><div style="margin-top:8px;">' + (d.downloaded ? '<button class="btn btn-outline" disabled>' + t('already_downloaded') + '</button>' : '<button class="btn btn-primary" onclick="downloadCatalogDS(\'' + d.id + '\')">' + t('btn_download_ds') + '</button>') + ' <button class="btn btn-outline" onclick="previewDS(\'' + d.id + '\')">' + t('btn_preview') + '</button></div></div>';
+    }).join('');
 }
 
 async function downloadCatalogDS(id) {
@@ -721,14 +782,215 @@ function updateWhatsHappening(s) {
     if (!s.is_training) { el.style.display = 'none'; return; }
     el.style.display = 'block';
     const p = s.max_iterations > 0 ? s.current_iteration / s.max_iterations : 0;
+    const loss = s.current_loss || 0;
+    const reward = s.current_reward || 0;
     let msg = '';
     if (p < 0.03) msg = t('wh_start');
-    else if (p < 0.15) msg = 'Loss: ' + s.current_loss.toFixed(2) + '. ' + t('wh_early');
-    else if (p < 0.4) msg = t('wh_mid');
-    else if (p < 0.7) msg = t('wh_late');
+    else if (p < 0.15) msg = 'Loss: ' + loss.toFixed(2) + '. ' + t('wh_early');
+    else if (p < 0.4)  msg = t('wh_mid') + ' Reward: ' + reward.toFixed(3);
+    else if (p < 0.7)  msg = t('wh_late');
     else if (p < 0.95) msg = t('wh_final');
-    else msg = t('wh_done');
+    else               msg = t('wh_done');
     txt.textContent = msg;
+}
+
+// ── УМНЫЙ АНАЛИЗ "что изменилось" ─────────────────────
+var _prevStatus = null;
+var _lossHistory = [];   // последние 20 значений loss
+var _rewardHistory = []; // последние 20 значений reward
+
+function updateSmartAnalysis(s) {
+    if (!s.is_training || !s.current_iteration) return;
+
+    // Накапливаем историю
+    if (s.current_loss) {
+        _lossHistory.push(s.current_loss);
+        if (_lossHistory.length > 20) _lossHistory.shift();
+    }
+    if (s.current_reward) {
+        _rewardHistory.push(s.current_reward);
+        if (_rewardHistory.length > 20) _rewardHistory.shift();
+    }
+
+    const box = document.getElementById('smart_analysis_box');
+    const list = document.getElementById('smart_analysis_list');
+    if (!box || !list) return;
+    box.style.display = 'block';
+
+    const items = [];
+
+    // Анализ loss
+    if (_lossHistory.length >= 5) {
+        const recent  = _lossHistory.slice(-5).reduce((a,b) => a+b,0) / 5;
+        const older   = _lossHistory.slice(0, 5).reduce((a,b) => a+b,0) / 5;
+        const lossChg = ((recent - older) / older * 100);
+        if (lossChg < -5) {
+            items.push({icon:'✅', text: t('an_loss_down').replace('{n}', Math.abs(lossChg).toFixed(1))});
+        } else if (lossChg > 3) {
+            items.push({icon:'⚠️', text: t('an_loss_up').replace('{n}', lossChg.toFixed(1))});
+        } else {
+            items.push({icon:'📊', text: t('an_loss_stable').replace('{n}', recent.toFixed(3))});
+        }
+    }
+
+    // Анализ reward
+    if (_rewardHistory.length >= 5) {
+        const rRecent = _rewardHistory.slice(-5).reduce((a,b) => a+b,0) / 5;
+        const rOlder  = _rewardHistory.slice(0,5).reduce((a,b) => a+b,0) / 5;
+        if (rOlder > 0) {
+            const rChg = ((rRecent - rOlder) / rOlder * 100);
+            if (rChg > 5)  items.push({icon:'📈', text: t('an_rew_up').replace('{n}', rChg.toFixed(1))});
+            else if (rChg < -5) items.push({icon:'📉', text: t('an_rew_down').replace('{n}', Math.abs(rChg).toFixed(1))});
+            else items.push({icon:'🎯', text: t('an_rew_stable').replace('{n}', rRecent.toFixed(3))});
+        }
+    }
+
+    // Val loss — оверфит
+    if (s.val_loss && s.current_loss) {
+        const ratio = s.val_loss / s.current_loss;
+        if (ratio > 1.15) {
+            items.push({icon:'🔴', text: t('an_overfit_hi').replace('{v}', s.val_loss.toFixed(3)).replace('{t}', s.current_loss.toFixed(3))});
+        } else if (ratio > 1.05) {
+            items.push({icon:'🟡', text: t('an_overfit_mid')});
+        } else {
+            items.push({icon:'🟢', text: t('an_overfit_ok')});
+        }
+    }
+
+    // Скорость
+    if (s.tokens_per_sec > 0) {
+        const dev = s.device === 'cuda' ? '🚀 GPU' : '🐢 CPU';
+        items.push({icon:'⚡', text: t('an_device').replace('{dev}', dev).replace('{n}', s.tokens_per_sec.toFixed(0))});
+    }
+
+    // Компоненты reward — что хуже/лучше всего
+    if (s.reward_components) {
+        const comps = Object.entries(s.reward_components);
+        const sorted = [...comps].sort((a,b) => a[1]-b[1]);
+        const worst = sorted[0];
+        const best  = sorted[sorted.length - 1];
+        if (worst) items.push({icon:'💡', text: t('an_weak').replace('{comp}', REWARD_LABELS[worst[0]]||worst[0]).replace('{n}', worst[1].toFixed(3))});
+        if (best)  items.push({icon:'🏆', text: t('an_best').replace('{comp}', REWARD_LABELS[best[0]]||best[0]).replace('{n}', best[1].toFixed(3))});
+    }
+
+    list.innerHTML = items.map(i =>
+        `<div class="analysis-item"><span class="analysis-icon">${i.icon}</span><span class="analysis-text">${i.text}</span></div>`
+    ).join('');
+
+    _prevStatus = s;
+}
+
+// ── REWARD КОМПОНЕНТЫ — прогресс-бары ─────────────────
+var _prevRewardComponents = {};
+
+function updateRewardComponents(s) {
+    if (!s.reward_components || !Object.keys(s.reward_components).length) return;
+    const box  = document.getElementById('reward_components_box');
+    const list = document.getElementById('reward_components_list');
+    if (!box || !list) return;
+    box.style.display = 'block';
+
+    const colors = {
+        diversity:           '#667eea',
+        coherence:           '#10b981',
+        repetition_penalty:  '#f59e0b',
+        length_score:        '#3b82f6',
+        vocabulary_richness: '#8b5cf6',
+        bigram_naturalness:  '#ec4899'
+    };
+
+    list.innerHTML = Object.entries(s.reward_components).map(([key, val]) => {
+        const label = REWARD_LABELS[key] || key;
+        const pct   = Math.min(100, Math.max(0, val * 100)).toFixed(0);
+        const color = colors[key] || '#667eea';
+        const prev  = _prevRewardComponents[key];
+        let deltaHtml = '';
+        if (prev !== undefined) {
+            const d = val - prev;
+            if (Math.abs(d) > 0.001) {
+                const sign  = d > 0 ? '+' : '';
+                const dColor = d > 0 ? '#10b981' : '#ef4444';
+                deltaHtml = `<span class="rbl-delta" style="color:${dColor}">${sign}${d.toFixed(3)}</span>`;
+            }
+        }
+        return `<div class="reward-bar-row">
+            <div class="reward-bar-label">
+                <span class="rbl-name">${label}</span>
+                <span class="rbl-val">${val.toFixed(3)} ${deltaHtml}</span>
+            </div>
+            <div class="reward-bar-bg">
+                <div class="reward-bar-fill" style="width:${pct}%;background:${color};"></div>
+            </div>
+        </div>`;
+    }).join('');
+
+    _prevRewardComponents = {...s.reward_components};
+}
+
+// ── LIVE-ЛЕНТА ИТЕРАЦИЙ ────────────────────────────────
+var _lastFeedIteration = 0;
+var _feedInterval = 200; // добавляем карточку каждые 200 итераций
+
+function updateIterationFeed(s) {
+    if (!s.is_training || !s.current_iteration) return;
+    if (s.current_iteration - _lastFeedIteration < _feedInterval) return;
+    _lastFeedIteration = s.current_iteration;
+
+    const box  = document.getElementById('iteration_feed_box');
+    const feed = document.getElementById('iteration_feed');
+    if (!box || !feed) return;
+    box.style.display = 'block';
+
+    const loss   = s.current_loss   ? s.current_loss.toFixed(4)   : '--';
+    const reward = s.current_reward ? s.current_reward.toFixed(4) : '--';
+    const ppl    = s.perplexity     ? s.perplexity.toFixed(1)     : '--';
+    const spd    = s.tokens_per_sec ? s.tokens_per_sec.toFixed(0) + ' tok/s' : '--';
+    const now    = new Date().toLocaleTimeString();
+
+    // Дельты с предыдущей карточкой
+    const prevLoss   = _prevStatus ? (_prevStatus.current_loss   || 0) : 0;
+    const prevReward = _prevStatus ? (_prevStatus.current_reward || 0) : 0;
+    const lossDelta   = prevLoss   ? ((s.current_loss   - prevLoss)   / prevLoss   * 100) : 0;
+    const rewardDelta = prevReward ? ((s.current_reward - prevReward) / prevReward * 100) : 0;
+
+    function deltaSpan(d, invert) {
+        if (!d || Math.abs(d) < 0.1) return '';
+        const good  = invert ? d < 0 : d > 0;
+        const color = good ? '#10b981' : '#ef4444';
+        const sign  = d > 0 ? '▲' : '▼';
+        return `<span style="color:${color};font-size:0.8em;margin-left:3px;">${sign}${Math.abs(d).toFixed(1)}%</span>`;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'iter-card';
+    card.innerHTML = `
+        <div class="iter-card-header">
+            <span class="iter-card-num">📍 ${t('iter_label')} ${s.current_iteration.toLocaleString()}</span>
+            <span class="iter-card-time">${now}</span>
+        </div>
+        <div class="iter-card-metrics">
+            <div class="iter-metric">
+                <span class="im-label">Loss</span>
+                <span class="im-val">${loss}</span>${deltaSpan(lossDelta, true)}
+            </div>
+            <div class="iter-metric">
+                <span class="im-label">Reward</span>
+                <span class="im-val">${reward}</span>${deltaSpan(rewardDelta, false)}
+            </div>
+            <div class="iter-metric">
+                <span class="im-label">Perplexity</span>
+                <span class="im-val">${ppl}</span>
+            </div>
+            <div class="iter-metric">
+                <span class="im-label">${t('speed_short')}</span>
+                <span class="im-val">${spd}</span>
+            </div>
+        </div>`;
+
+    feed.insertBefore(card, feed.firstChild);
+
+    // Максимум 15 карточек
+    while (feed.children.length > 15) feed.removeChild(feed.lastChild);
 }
 
 async function updateTrainingStatus() {
@@ -749,12 +1011,9 @@ async function updateTrainingStatus() {
         document.getElementById('memory_usage').textContent = s.memory_mb ? s.memory_mb.toFixed(0) + ' MB' : '--';
         updateMilestones(pct);
         updateWhatsHappening(s);
-        if (s.reward_components && Object.keys(s.reward_components).length > 0) {
-            document.getElementById('reward_components_box').style.display = 'block';
-            document.getElementById('reward_components_list').innerHTML = Object.entries(s.reward_components).map(function(e) {
-                return '<div class="status-item"><span class="status-label">' + (REWARD_LABELS[e[0]] || e[0]) + '</span><span class="status-value">' + e[1].toFixed(4) + '</span></div>';
-            }).join('');
-        }
+        updateRewardComponents(s);
+        updateSmartAnalysis(s);
+        updateIterationFeed(s);
         if (s.current_iteration > 0 && s.is_training) {
             chartData.labels.push(s.current_iteration);
             chartData.loss.push(s.current_loss);
@@ -1081,6 +1340,29 @@ var TRANSLATIONS = {
         wh_done: 'Обучение почти завершено!',
         rl_diversity: 'Разнообразие', rl_coherence: 'Когерентность', rl_repetition: 'Без повторов',
         rl_length: 'Длина', rl_vocabulary: 'Словарь', rl_naturalness: 'Естественность',
+        iter_label: 'Итерация', speed_short: 'Скорость',
+        an_loss_down: 'Loss упал на {n}% — модель учится',
+        an_loss_up: 'Loss вырос на {n}% — нестабильность обучения',
+        an_loss_stable: 'Loss стабилен ({n}) — модель в равновесии',
+        an_rew_up: 'Reward вырос на {n}% — текст становится лучше',
+        an_rew_down: 'Reward упал на {n}% — следи за компонентами',
+        an_rew_stable: 'Reward стабилен ({n})',
+        an_overfit_hi: 'Val Loss ({v}) > Train Loss ({t}) — риск переобучения! Стоп скоро.',
+        an_overfit_mid: 'Val Loss немного выше Train Loss — небольшое переобучение, норма',
+        an_overfit_ok: 'Val Loss и Train Loss близки — переобучения нет',
+        an_device: '{dev} — {n} токенов/сек',
+        an_weak: 'Слабое место: {comp} ({n}) — над этим работает REINFORCE',
+        an_best: 'Лучший показатель: {comp} ({n})',
+        gpu_checking: 'Проверяем устройство...',
+        gpu_installing: '⏳ Устанавливаем поддержку GPU...',
+        gpu_installed: '✅ GPU установлен — нужен перезапуск',
+        gpu_error: '❌ Ошибка установки GPU',
+        gpu_cpu_mode: '🐢 CPU режим (обучение медленное)',
+        gpu_activate: '⚡ Активировать GPU',
+        gpu_retry: '🔄 Попробовать снова',
+        gpu_restart_msg: '✅ GPU установлен! Перезапусти сервер и обнови страницу.',
+        gpu_downloading: '⬇️ Скачиваем (~2 ГБ)...',
+        gpu_venv_hint: 'GPU уже установлен! Запусти start_gpu.bat для GPU-режима. Или продолжай на CPU.',
     },
     en: {
         subtitle: 'Create, train and analyze neural networks — simple and visual',
@@ -1209,6 +1491,29 @@ var TRANSLATIONS = {
         wh_done: 'Training is almost complete!',
         rl_diversity: 'Diversity', rl_coherence: 'Coherence', rl_repetition: 'No Repetition',
         rl_length: 'Length', rl_vocabulary: 'Vocabulary', rl_naturalness: 'Naturalness',
+        iter_label: 'Iteration', speed_short: 'Speed',
+        an_loss_down: 'Loss fell {n}% — model is learning',
+        an_loss_up: 'Loss rose {n}% — training instability',
+        an_loss_stable: 'Loss stable ({n}) — equilibrium',
+        an_rew_up: 'Reward up {n}% — quality improving',
+        an_rew_down: 'Reward down {n}% — check components',
+        an_rew_stable: 'Reward stable ({n})',
+        an_overfit_hi: 'Val Loss ({v}) > Train Loss ({t}) — overfitting risk! Stop soon.',
+        an_overfit_mid: 'Val Loss slightly above Train Loss — minor overfitting, normal',
+        an_overfit_ok: 'Val Loss and Train Loss close — no overfitting',
+        an_device: '{dev} — {n} tokens/sec',
+        an_weak: 'Weak point: {comp} ({n}) — REINFORCE is working on it',
+        an_best: 'Best metric: {comp} ({n})',
+        gpu_checking: 'Checking device...',
+        gpu_installing: '⏳ Installing GPU support...',
+        gpu_installed: '✅ GPU installed — restart required',
+        gpu_error: '❌ GPU installation error',
+        gpu_cpu_mode: '🐢 CPU mode (slow training)',
+        gpu_activate: '⚡ Activate GPU',
+        gpu_retry: '🔄 Retry',
+        gpu_restart_msg: '✅ GPU installed! Restart the server and refresh the page.',
+        gpu_downloading: '⬇️ Downloading (~2 GB)...',
+        gpu_venv_hint: 'GPU already installed! Run start_gpu.bat for GPU mode. Or continue on CPU.',
     }
 };
 
@@ -1244,17 +1549,166 @@ function switchLanguage(lang) {
         REWARD_LABELS.vocabulary_richness = t('rl_vocabulary');
         REWARD_LABELS.bigram_naturalness = t('rl_naturalness');
     }
+    // Re-render dynamic tabs that use t() and currentLang
+    if (typeof currentCategory !== 'undefined') loadCatalog(currentCategory);
+    checkGPUStatus();
 }
 
 function t(key) {
     return (TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][key]) || key;
 }
 
+// ── GPU статус-бар ──────────────────────────────────────
+async function checkGPUStatus() {
+    try {
+        const r = await fetch('/gpu_status');
+        const d = await r.json();
+        const dot         = document.getElementById('gpu-dot');
+        const label       = document.getElementById('gpu-label');
+        const installArea = document.getElementById('gpu-install-area');
+        const restartNote = document.getElementById('gpu-restart-notice');
+        const installBtn  = document.getElementById('gpu-install-btn');
+        const prog        = document.getElementById('gpu-install-progress');
+        const fill        = document.getElementById('gpu-progress-fill');
+        const msg         = document.getElementById('gpu-install-msg');
+        const s           = d.install_status || {};
+
+        if (d.cuda_available) {
+            // GPU активен
+            dot.style.background = '#10b981';
+            label.style.color = '#10b981';
+            label.textContent = '🚀 GPU: ' + (d.gpu_name || 'CUDA');
+            installArea.style.display = 'none';
+            restartNote.style.display = 'none';
+
+        } else if (s.is_installing) {
+            // Идёт установка
+            dot.style.background = '#f59e0b';
+            label.style.color = '#f59e0b';
+            label.textContent = t('gpu_installing');
+            installArea.style.display = 'flex';
+            prog.style.display = 'block';
+            installBtn.style.display = 'none';
+            restartNote.style.display = 'none';
+            const pct = Math.max(0, s.progress || 0);
+            const isDownloading = (pct >= 30 && pct <= 84);
+            if (isDownloading) {
+                const wave = Math.floor(Date.now() / 1200) % 20;
+                fill.style.width = Math.min(84, pct + wave) + '%';
+                fill.textContent = t('gpu_downloading');
+            } else {
+                fill.style.width = pct + '%';
+                fill.textContent = pct + '%';
+            }
+            fill.style.background = '';
+            msg.innerHTML = (s.message || '').replace(/\n/g, '<br>');
+            msg.style.color = '#aaa';
+
+        } else if (s.progress === -1 || (s.error && s.error !== '')) {
+            // Ошибка установки
+            dot.style.background = '#ef4444';
+            label.style.color = '#ef4444';
+            label.textContent = t('gpu_error');
+            installArea.style.display = 'flex';
+            prog.style.display = 'block';
+            restartNote.style.display = 'none';
+            fill.style.width = '0%';
+            fill.style.background = '';
+            fill.textContent = '';
+            msg.innerHTML = (s.message || s.error || '').replace(/\n/g, '<br>');
+            msg.style.color = '#ef4444';
+            installBtn.style.display = '';
+            installBtn.disabled = false;
+            installBtn.textContent = t('gpu_retry');
+
+        } else if (s.success) {
+            // Только что установили (текущая сессия) — показать успех + инструкцию
+            dot.style.background = '#10b981';
+            label.style.color = '#10b981';
+            label.textContent = t('gpu_installed');
+            installArea.style.display = 'flex';
+            prog.style.display = 'block';
+            fill.style.width = '100%';
+            fill.style.background = '#10b981';
+            fill.textContent = '100%';
+            msg.style.color = '#10b981';
+            msg.innerHTML = t('gpu_restart_msg');
+            installBtn.style.display = 'none';
+            restartNote.style.display = 'none';
+
+        } else if (d.venv_gpu_ready) {
+            // Перезапущен обычным способом, но GPU-venv существует → CPU + подсказка
+            const pyVer = d.python_version || '';
+            dot.style.background = '#f59e0b';
+            label.style.color = '#f59e0b';
+            label.textContent = t('gpu_cpu_mode') + (pyVer ? ' (Python ' + pyVer + ')' : '');
+            installArea.style.display = 'flex';
+            prog.style.display = 'block';
+            fill.parentElement.style.display = 'none';  // скрыть progress-bar
+            msg.style.color = '#10b981';
+            msg.innerHTML = '💡 ' + t('gpu_venv_hint');
+            installBtn.style.display = '';
+            installBtn.disabled = false;
+            installBtn.textContent = t('gpu_activate');
+            restartNote.style.display = 'none';
+
+        } else {
+            // Чистый CPU режим — GPU не установлен
+            const pyVer = d.python_version || '';
+            dot.style.background = '#ef4444';
+            label.style.color = '#ef4444';
+            label.textContent = t('gpu_cpu_mode') + (pyVer ? ' (Python ' + pyVer + ')' : '');
+            installArea.style.display = 'flex';
+            prog.style.display = 'none';
+            msg.textContent = '';
+            msg.style.color = '';
+            installBtn.style.display = '';
+            installBtn.disabled = false;
+            installBtn.textContent = t('gpu_activate');
+            restartNote.style.display = 'none';
+        }
+    } catch(e) { /* сервер не ответил */ }
+}
+
+async function installGPU() {
+    const btn = document.getElementById('gpu-install-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳...';
+    try {
+        const r = await fetch('/gpu_install', {method:'POST'});
+        const d = await r.json();
+        if (d.status === 'already_available') {
+            await checkGPUStatus();
+        } else if (d.status === 'installing') {
+            document.getElementById('gpu-install-progress').style.display = 'block';
+            btn.style.display = 'none';
+            // Мониторим установку каждые 2 секунды
+            const interval = setInterval(async () => {
+                try {
+                    const r2 = await fetch('/gpu_status');
+                    const d2 = await r2.json();
+                    await checkGPUStatus();
+                    if (!d2.install_status.is_installing) clearInterval(interval);
+                } catch(e) { clearInterval(interval); await checkGPUStatus(); }
+            }, 2000);
+        } else {
+            // already_installing или другой статус
+            await checkGPUStatus();
+        }
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = t('gpu_activate');
+    }
+}
+// ────────────────────────────────────────────────────────
+
 window.addEventListener('load', function() {
     loadModelsSelect();
     initChart();
     startStatusUpdates();
     checkWizard();
+    checkGPUStatus();
+    setInterval(checkGPUStatus, 5000);
     // Restore saved language — always apply to set REWARD_LABELS etc.
     switchLanguage(currentLang);
 });
