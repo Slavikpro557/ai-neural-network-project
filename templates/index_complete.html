@@ -390,7 +390,7 @@
             </div>
             <!-- Умный анализ: что изменилось -->
             <div class="status-box" id="smart_analysis_box" style="display:none;">
-                <h3>🧠 Что изменилось</h3>
+                <h3 data-i18n="smart_analysis_title">🧠 Что изменилось</h3>
                 <div id="smart_analysis_list"></div>
             </div>
 
@@ -402,7 +402,7 @@
 
             <!-- Live-лента итераций -->
             <div class="status-box" id="iteration_feed_box" style="display:none;">
-                <h3>📍 Живая лента итераций</h3>
+                <h3 data-i18n="iteration_feed_title">📍 Живая лента итераций</h3>
                 <div id="iteration_feed" style="max-height:320px;overflow-y:auto;"></div>
             </div>
         </div>
@@ -516,10 +516,13 @@ const PRESETS = {
     quality:  { d_model: 512, num_layers: 12, num_heads: 16, d_ff: 2048, max_seq_len: 512, vocab_size: 25000, max_iterations: 100000, batch_size: 32, learning_rate: 0.0001 },
 };
 
-var REWARD_LABELS = {
-    diversity: 'Разнообразие', coherence: 'Когерентность', repetition_penalty: 'Без повторов',
-    length_score: 'Длина', vocabulary_richness: 'Словарь', bigram_naturalness: 'Естественность'
-};
+function getRewardLabels() {
+    return {
+        diversity: t('rl_diversity'), coherence: t('rl_coherence'), repetition_penalty: t('rl_repetition'),
+        length_score: t('rl_length'), vocabulary_richness: t('rl_vocabulary'), bigram_naturalness: t('rl_naturalness')
+    };
+}
+var REWARD_LABELS = getRewardLabels();
 
 function showTab(tabName) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -674,7 +677,12 @@ async function loadModelsSelect() {
     const data = await resp.json();
     ['train_model_name', 'gen_model_name', 'dataset_model_name', 'compare_model_name'].forEach(id => {
         const sel = document.getElementById(id);
-        if (sel) sel.innerHTML = data.models.map(m => '<option value="' + m.name + '">' + m.name + '</option>').join('');
+        if (!sel) return;
+        var prev = sel.value;
+        sel.innerHTML = data.models.map(m => '<option value="' + m.name + '">' + m.name + '</option>').join('');
+        if (prev && Array.from(sel.options).some(o => o.value === prev)) {
+            sel.value = prev;
+        }
     });
 }
 
@@ -1277,6 +1285,8 @@ var TRANSLATIONS = {
         speed_label: 'Скорость:', remaining_label: 'Осталось:', memory_label: 'Память:',
         training_idle: 'Не активно', training_active: 'Обучается...',
         reward_components: 'Компоненты награды',
+        smart_analysis_title: '🧠 Что изменилось',
+        iteration_feed_title: '📍 Живая лента итераций',
         generation_title: 'Генерация текста',
         generate_prompt: 'Промпт:',
         btn_generate: 'Сгенерировать',
@@ -1428,6 +1438,8 @@ var TRANSLATIONS = {
         speed_label: 'Speed:', remaining_label: 'Remaining:', memory_label: 'Memory:',
         training_idle: 'Idle', training_active: 'Training...',
         reward_components: 'Reward Components',
+        smart_analysis_title: '🧠 What Changed',
+        iteration_feed_title: '📍 Live Iteration Feed',
         generation_title: 'Text Generation',
         generate_prompt: 'Prompt:',
         btn_generate: 'Generate',
@@ -1541,14 +1553,7 @@ function switchLanguage(lang) {
         }
     });
     // Update dynamic content using t()
-    if (typeof REWARD_LABELS !== 'undefined') {
-        REWARD_LABELS.diversity = t('rl_diversity');
-        REWARD_LABELS.coherence = t('rl_coherence');
-        REWARD_LABELS.repetition_penalty = t('rl_repetition');
-        REWARD_LABELS.length_score = t('rl_length');
-        REWARD_LABELS.vocabulary_richness = t('rl_vocabulary');
-        REWARD_LABELS.bigram_naturalness = t('rl_naturalness');
-    }
+    REWARD_LABELS = getRewardLabels();
     // Re-render dynamic tabs that use t() and currentLang
     if (typeof currentCategory !== 'undefined') loadCatalog(currentCategory);
     checkGPUStatus();

@@ -308,10 +308,11 @@ class AZRTrainer:
         self.eval_data = [dataset.samples[i] for i in range(min(val_size, len(dataset.samples)))]
         self._val_dataset = val_dataset
 
+        use_pin = (self.device.type == 'cuda')
         dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-                               num_workers=0, pin_memory=False)
+                               num_workers=0, pin_memory=use_pin)
         self._val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
-                                      num_workers=0, pin_memory=False)
+                                      num_workers=0, pin_memory=use_pin)
 
         # Обновляем RewardComputer референсными данными
         self.reward_computer.update_reference(texts[:100])
