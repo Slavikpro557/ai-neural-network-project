@@ -690,38 +690,54 @@ async function loadModelsSelect() {
 }
 
 async function loadDatasets() {
-    const resp = await fetch('/books');
-    const data = await resp.json();
-    const div = document.getElementById('available_datasets');
-    if (div) {
-        div.innerHTML = data.books.map(b => '<div class="dataset-item"><span>' + (b.name||b) + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span><button class="btn btn-primary" onclick="attachDS(\'' + (b.name||b) + '\')">' + t('btn_attach') + '</button></div>').join('') || '<p style="color:#666;">' + t('no_datasets') + '</p>';
+    var modelSel = document.getElementById('dataset_model_name');
+    var modelName = modelSel ? modelSel.value : '';
+    if (!modelName) {
+        // No model selected — show all datasets without attach buttons
+        var resp = await fetch('/books');
+        var data = await resp.json();
+        var div = document.getElementById('available_datasets');
+        if (div) {
+            div.innerHTML = data.books.map(function(b) {
+                return '<div class="dataset-item"><span>' + (b.name||b) + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span></div>';
+            }).join('') || '<p style="color:#666;">' + t('no_datasets') + '</p>';
+        }
+        var attDiv = document.getElementById('attached_datasets');
+        if (attDiv) attDiv.innerHTML = '<p style="color:#666;">' + t('no_attached') + '</p>';
+        return;
     }
-    loadModelDatasets();
+    try {
+        var resp2 = await fetch('/model_datasets/' + modelName);
+        var md = await resp2.json();
+        // Attached datasets
+        var attDiv2 = document.getElementById('attached_datasets');
+        if (attDiv2) {
+            attDiv2.innerHTML = md.attached.map(function(d) {
+                return '<div class="dataset-item"><span>' + d.name + ' (' + (d.size/1024).toFixed(1) + ' KB)</span><button class="btn btn-danger" onclick="detachDS(\'' + d.name.replace(/'/g,"\\'") + '\')">' + t('btn_detach') + '</button></div>';
+            }).join('') || '<p style="color:#666;">' + t('no_attached') + '</p>';
+        }
+        // Available = only NOT attached
+        var avDiv = document.getElementById('available_datasets');
+        if (avDiv) {
+            avDiv.innerHTML = md.available.map(function(b) {
+                return '<div class="dataset-item"><span>' + (b.name||b) + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span><button class="btn btn-primary" onclick="attachDS(\'' + (b.name||b).replace(/'/g,"\\'") + '\')">' + t('btn_attach') + '</button></div>';
+            }).join('') || '<p style="color:#666;">' + t('no_datasets') + '</p>';
+        }
+    } catch(e) { console.error('loadDatasets error:', e); }
 }
 
-async function loadModelDatasets() {
-    const modelName = document.getElementById('dataset_model_name') ? document.getElementById('dataset_model_name').value : '';
-    if (!modelName) return;
-    try {
-        const resp = await fetch('/model_datasets/' + modelName);
-        const data = await resp.json();
-        const div = document.getElementById('attached_datasets');
-        if (div) {
-            div.innerHTML = data.attached.map(d => '<div class="dataset-item"><span>' + d.name + ' (' + (d.size/1024).toFixed(1) + ' KB)</span><button class="btn btn-danger" onclick="detachDS(\'' + d.name + '\')">' + t('btn_detach') + '</button></div>').join('') || '<p style="color:#666;">' + t('no_attached') + '</p>';
-        }
-    } catch(e) {}
-}
+async function loadModelDatasets() { loadDatasets(); }
 
 async function attachDS(name) {
-    const modelName = document.getElementById('dataset_model_name').value;
+    var modelName = document.getElementById('dataset_model_name').value;
     await fetch('/attach_dataset', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model_name: modelName, dataset_name: name})});
-    loadModelDatasets();
+    loadDatasets();
 }
 
 async function detachDS(name) {
-    const modelName = document.getElementById('dataset_model_name').value;
+    var modelName = document.getElementById('dataset_model_name').value;
     await fetch('/detach_dataset', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model_name: modelName, dataset_name: name})});
-    loadModelDatasets();
+    loadDatasets();
 }
 
 // === TRAINING ===
