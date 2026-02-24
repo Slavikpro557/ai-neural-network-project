@@ -522,7 +522,10 @@ function getRewardLabels() {
         length_score: t('rl_length'), vocabulary_richness: t('rl_vocabulary'), bigram_naturalness: t('rl_naturalness')
     };
 }
-var REWARD_LABELS = getRewardLabels();
+var REWARD_LABELS = {
+    diversity: 'Разнообразие', coherence: 'Когерентность', repetition_penalty: 'Без повторов',
+    length_score: 'Длина', vocabulary_richness: 'Словарь', bigram_naturalness: 'Естественность'
+};
 
 function showTab(tabName) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
