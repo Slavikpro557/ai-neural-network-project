@@ -22,6 +22,7 @@ import threading
 import shutil
 import subprocess
 import sys
+import re
 
 from model import CustomTransformerLM, count_parameters
 from tokenizer import SimpleTokenizer
@@ -1089,7 +1090,7 @@ async def upload_model(model_name: str, file: UploadFile = File(...)):
 
         try:
             # Загружаем чекпоинт
-            ckpt = torch.load(model_path, map_location='cpu')
+            ckpt = torch.load(model_path, map_location='cpu', weights_only=False)
 
             if is_new:
                 # Новая модель — извлекаем конфиг из чекпоинта или определяем из state_dict
@@ -1107,11 +1108,23 @@ async def upload_model(model_name: str, file: UploadFile = File(...)):
                         vocab_size, d_model = state_dict[emb_key].shape
                     else:
                         vocab_size, d_model = 10000, 256
-                    num_layers = len([k for k in state_dict if '.attn.query' in k or '.attention' in k and 'weight' in k]) or 4
+                    # Считаем уникальные номера блоков (blocks.0, blocks.1, ...)
+                    block_ids = set()
+                    for k in state_dict:
+                        m = re.match(r'blocks\.(\d+)\.', k)
+                        if m:
+                            block_ids.add(int(m.group(1)))
+                    num_layers = len(block_ids) if block_ids else 4
+                    # Определяем max_seq_len из position_embedding
+                    pos_key = next((k for k in state_dict if 'position' in k and 'weight' in k), None)
+                    max_seq_len = int(state_dict[pos_key].shape[0]) if pos_key else 256
+                    # Определяем d_ff из первого FF слоя
+                    ff_key = next((k for k in state_dict if '.ff.linear1.weight' in k), None)
+                    d_ff = int(state_dict[ff_key].shape[0]) if ff_key else int(d_model) * 4
                     model_config = {
                         'vocab_size': int(vocab_size), 'd_model': int(d_model),
                         'num_layers': max(num_layers, 1), 'num_heads': max(int(d_model) // 64, 1),
-                        'd_ff': int(d_model) * 4, 'max_seq_len': 256, 'name': model_name
+                        'd_ff': d_ff, 'max_seq_len': max_seq_len, 'name': model_name
                     }
 
                 # Создаём модель и проверяем что веса подходят

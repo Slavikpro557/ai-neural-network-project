@@ -1299,28 +1299,66 @@ async function deleteModel(name) {
 
 function handleModelFileSelect() {
     var input = document.getElementById('model_file_input');
-    document.getElementById('model_file_name').textContent = input.files.length ? input.files[0].name : t('no_file_chosen');
+    var nameInput = document.getElementById('upload_model_name');
+    if (input.files.length) {
+        var file = input.files[0];
+        var sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        document.getElementById('model_file_name').textContent = file.name + ' (' + sizeMB + ' MB)';
+        // Auto-fill model name from filename if empty
+        if (!nameInput.value.trim()) {
+            var baseName = file.name.replace(/\.(pt|pth|bin)$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+            nameInput.value = baseName;
+        }
+    } else {
+        document.getElementById('model_file_name').textContent = t('no_file_chosen');
+    }
 }
 
-async function uploadModel() {
+function uploadModel() {
     var name = document.getElementById('upload_model_name').value.trim();
     var input = document.getElementById('model_file_input');
     var statusDiv = document.getElementById('upload_model_status');
-    if (!name) { alert(t('enter_model_name')); return; }
-    if (!input.files.length) { alert(t('no_file_chosen')); return; }
-    statusDiv.innerHTML = '<div class="alert alert-info">' + t('loading') + '</div>';
+    if (!name) { statusDiv.innerHTML = '<div class="alert alert-error">' + t('enter_model_name') + '</div>'; return; }
+    if (!input.files.length) { statusDiv.innerHTML = '<div class="alert alert-error">' + t('no_file_chosen') + '</div>'; return; }
+    var file = input.files[0];
+    var sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    statusDiv.innerHTML = '<div class="alert alert-info"><div style="margin-bottom:8px;">' + t('uploading_model') + ' (' + sizeMB + ' MB)...</div><div class="progress-bar"><div class="progress-fill" id="upload_progress" style="width:0%">0%</div></div></div>';
     var formData = new FormData();
-    formData.append('file', input.files[0]);
-    try {
-        var resp = await fetch('/upload_model/' + encodeURIComponent(name), { method: 'POST', body: formData });
-        if (!resp.ok) { var err = await resp.text(); try { err = JSON.parse(err).detail; } catch(x) {} statusDiv.innerHTML = '<div class="alert alert-error">Error: ' + err + '</div>'; return; }
-        var data = await resp.json();
-        statusDiv.innerHTML = '<div class="alert alert-success">' + (data.message || 'OK') + '</div>';
-        loadModelsList();
-        loadModelsSelect();
-        input.value = '';
-        document.getElementById('model_file_name').textContent = t('no_file_chosen');
-    } catch(e) { statusDiv.innerHTML = '<div class="alert alert-error">Error: ' + e.message + '</div>'; }
+    formData.append('file', file);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload_model/' + encodeURIComponent(name));
+    xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+            var pct = Math.round(e.loaded / e.total * 100);
+            var bar = document.getElementById('upload_progress');
+            if (bar) { bar.style.width = pct + '%'; bar.textContent = pct + '%'; }
+        }
+    };
+    xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                var data = JSON.parse(xhr.responseText);
+                statusDiv.innerHTML = '<div class="alert alert-success">✅ ' + (data.message || 'OK') + '</div>';
+                loadModelsList();
+                loadModelsSelect();
+                input.value = '';
+                document.getElementById('upload_model_name').value = '';
+                document.getElementById('model_file_name').textContent = t('no_file_chosen');
+            } catch(e) {
+                statusDiv.innerHTML = '<div class="alert alert-success">✅ ' + t('upload_complete') + '</div>';
+                loadModelsList();
+                loadModelsSelect();
+            }
+        } else {
+            var errMsg = xhr.responseText;
+            try { errMsg = JSON.parse(errMsg).detail; } catch(x) {}
+            statusDiv.innerHTML = '<div class="alert alert-error">❌ ' + errMsg + '</div>';
+        }
+    };
+    xhr.onerror = function() {
+        statusDiv.innerHTML = '<div class="alert alert-error">❌ ' + t('upload_network_error') + '</div>';
+    };
+    xhr.send(formData);
 }
 
 // === WIZARD ===
@@ -1456,6 +1494,9 @@ var TRANSLATIONS = {
         upload_model_title: 'Загрузить модель',
         upload_model_hint: 'Загрузите .pt файл модели (state_dict или полный чекпоинт)',
         btn_upload_model: 'Загрузить модель',
+        uploading_model: 'Загрузка модели',
+        upload_complete: 'Модель загружена успешно',
+        upload_network_error: 'Ошибка сети при загрузке',
         status_idle: 'Не запущено',
         checkpoint_a_label: 'Чекпоинт A:',
         checkpoint_b_label: 'Чекпоинт B:',
@@ -1624,6 +1665,9 @@ var TRANSLATIONS = {
         upload_model_title: 'Upload Model',
         upload_model_hint: 'Upload a .pt model file (state_dict or full checkpoint)',
         btn_upload_model: 'Upload Model',
+        uploading_model: 'Uploading model',
+        upload_complete: 'Model uploaded successfully',
+        upload_network_error: 'Network error during upload',
         status_idle: 'Not running',
         checkpoint_a_label: 'Checkpoint A:',
         checkpoint_b_label: 'Checkpoint B:',
