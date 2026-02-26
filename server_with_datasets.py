@@ -95,6 +95,7 @@ class TrainingConfig(BaseModel):
     learning_rate: float = 3e-4
     save_every: int = 1000
     resume_from: str = None
+    resume: bool = False
     device: str = "auto"
 
 
@@ -599,14 +600,28 @@ async def start_training(config: TrainingConfig):
     if len(attached) == 0:
         raise HTTPException(status_code=400, detail="No datasets attached to model. Attach datasets first!")
 
+    # Auto-find latest checkpoint for resume
+    if config.resume and not config.resume_from:
+        checkpoint_dir = CHECKPOINTS_DIR / config.model_name
+        if checkpoint_dir.exists():
+            # Find latest checkpoint (paused > regular > error)
+            candidates = []
+            for pattern in ["model_paused_*.pt", "model_iter_*.pt", "model_interrupted_*.pt", "model_error_*.pt"]:
+                candidates.extend(checkpoint_dir.glob(pattern))
+            if candidates:
+                latest = max(candidates, key=lambda f: f.stat().st_mtime)
+                config.resume_from = str(latest)
+                print(f"Auto-resuming from: {latest.name}")
+
     thread = threading.Thread(target=train_model_background, args=(config,))
     thread.start()
 
     return {
         "status": "success",
-        "message": f"Training started with {len(attached)} datasets",
+        "message": f"Training started with {len(attached)} datasets" + (f" (resuming from checkpoint)" if config.resume_from else ""),
         "datasets": attached,
-        "config": config.dict()
+        "resumed": bool(config.resume_from),
+        "config": config.model_dump()
     }
 
 
@@ -622,6 +637,64 @@ async def stop_training():
 @app.get("/training_status")
 async def get_training_status():
     return training_status
+
+
+@app.post("/generate_live")
+async def generate_live(config: GenerateConfig):
+    """Генерация текста из текущей обучающейся модели (или последней обученной)"""
+    global active_trainer
+    try:
+        model = None
+        tokenizer = None
+
+        # Пробуем использовать модель из активного trainer'а
+        if active_trainer and active_trainer.model is not None:
+            model = active_trainer.model
+            tokenizer = active_trainer.tokenizer
+        else:
+            # Fallback: загрузить из файла
+            model_dir = MODELS_DIR / config.model_name
+            if not model_dir.exists():
+                raise HTTPException(status_code=404, detail="Model not found")
+            with open(model_dir / "config.json") as f:
+                model_config = json.load(f)
+            model = CustomTransformerLM(**{k: model_config[k] for k in ['vocab_size', 'd_model', 'num_layers', 'num_heads', 'd_ff', 'max_seq_len']})
+            trained = model_dir / "model_trained.pt"
+            weights = trained if trained.exists() else model_dir / "model.pt"
+            ckpt = torch.load(weights, map_location='cpu')
+            if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
+                model.load_state_dict(ckpt['model_state_dict'])
+            else:
+                model.load_state_dict(ckpt)
+            tokenizer = SimpleTokenizer.load(model_dir / "tokenizer.pkl")
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            model = model.to(device)
+
+        model.eval()
+        device = next(model.parameters()).device
+        tokens = tokenizer.encode(config.prompt)
+        idx = torch.tensor([tokens], dtype=torch.long, device=device)
+
+        with torch.no_grad():
+            generated = model.generate(idx, max_new_tokens=config.max_length,
+                                      temperature=config.temperature, top_k=config.top_k or 40)
+
+        gen_text = tokenizer.decode(generated[0].cpu().tolist())
+
+        # Return model to training mode if it was being trained
+        if training_status.get("is_training"):
+            model.train()
+
+        return {
+            "status": "success",
+            "generated_text": gen_text,
+            "iteration": training_status.get("current_iteration", 0),
+            "is_training": training_status.get("is_training", False)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Training Analytics ===
@@ -1001,39 +1074,90 @@ async def download_model(model_name: str):
 
 @app.post("/upload_model/{model_name}")
 async def upload_model(model_name: str, file: UploadFile = File(...)):
+    """Загрузить модель: если модель существует — обновляет веса, если нет — создаёт из чекпоинта"""
     try:
         model_dir = MODELS_DIR / model_name
-        if not model_dir.exists():
-            raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+        is_new = not model_dir.exists()
 
+        if is_new:
+            model_dir.mkdir(parents=True, exist_ok=True)
+
+        # Сохраняем файл
         model_path = model_dir / "model_trained.pt"
         with open(model_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
         try:
-            with open(model_dir / "config.json") as f:
-                model_config = json.load(f)
+            # Загружаем чекпоинт
+            ckpt = torch.load(model_path, map_location='cpu')
 
-            model = CustomTransformerLM(
-                vocab_size=model_config["vocab_size"],
-                d_model=model_config["d_model"],
-                num_layers=model_config["num_layers"],
-                num_heads=model_config["num_heads"],
-                d_ff=model_config["d_ff"],
-                max_seq_len=model_config["max_seq_len"]
-            )
-            model.load_state_dict(torch.load(model_path))
+            if is_new:
+                # Новая модель — извлекаем конфиг из чекпоинта или определяем из state_dict
+                state_dict = ckpt
+                if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
+                    state_dict = ckpt['model_state_dict']
+                    model_config = ckpt.get('model_config', {})
+                else:
+                    model_config = {}
 
-            if model_name in active_models:
-                active_models[model_name]["model"] = model
+                # Определяем параметры из весов если конфиг не найден
+                if not model_config:
+                    emb_key = next((k for k in state_dict if 'embedding' in k and 'weight' in k), None)
+                    if emb_key:
+                        vocab_size, d_model = state_dict[emb_key].shape
+                    else:
+                        vocab_size, d_model = 10000, 256
+                    num_layers = len([k for k in state_dict if '.attn.query' in k or '.attention' in k and 'weight' in k]) or 4
+                    model_config = {
+                        'vocab_size': int(vocab_size), 'd_model': int(d_model),
+                        'num_layers': max(num_layers, 1), 'num_heads': max(int(d_model) // 64, 1),
+                        'd_ff': int(d_model) * 4, 'max_seq_len': 256, 'name': model_name
+                    }
 
-            return {
-                "status": "success",
-                "message": f"Model '{model_name}' uploaded successfully",
-                "size": model_path.stat().st_size
-            }
+                # Создаём модель и проверяем что веса подходят
+                model = CustomTransformerLM(**{k: model_config[k] for k in ['vocab_size', 'd_model', 'num_layers', 'num_heads', 'd_ff', 'max_seq_len']})
+                model.load_state_dict(state_dict)
+
+                # Сохраняем конфиг и initial weights
+                with open(model_dir / "config.json", 'w', encoding='utf-8') as f:
+                    json.dump(model_config, f, indent=2, ensure_ascii=False)
+                torch.save(state_dict, model_dir / "model.pt")
+
+                # Создаём пустой токенизатор
+                tokenizer = SimpleTokenizer(vocab_size=model_config['vocab_size'])
+                tokenizer.save(model_dir / "tokenizer.pkl")
+
+                return {
+                    "status": "success",
+                    "message": f"Model '{model_name}' created from uploaded file ({model_config['d_model']}d / {model_config['num_layers']} layers / {model_config['vocab_size']} vocab)",
+                    "config": model_config,
+                    "size": model_path.stat().st_size
+                }
+            else:
+                # Существующая модель — обновляем веса
+                with open(model_dir / "config.json") as f:
+                    model_config = json.load(f)
+
+                state_dict = ckpt
+                if isinstance(ckpt, dict) and 'model_state_dict' in ckpt:
+                    state_dict = ckpt['model_state_dict']
+
+                model = CustomTransformerLM(**{k: model_config[k] for k in ['vocab_size', 'd_model', 'num_layers', 'num_heads', 'd_ff', 'max_seq_len']})
+                model.load_state_dict(state_dict)
+
+                if model_name in active_models:
+                    active_models[model_name]["model"] = model
+
+                return {
+                    "status": "success",
+                    "message": f"Model '{model_name}' weights updated",
+                    "size": model_path.stat().st_size
+                }
         except Exception as e:
-            model_path.unlink()
+            if is_new and model_dir.exists():
+                shutil.rmtree(model_dir)
+            elif model_path.exists():
+                model_path.unlink()
             raise HTTPException(status_code=400, detail=f"Invalid model file: {str(e)}")
 
     except HTTPException:

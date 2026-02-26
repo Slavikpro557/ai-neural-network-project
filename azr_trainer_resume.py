@@ -317,14 +317,15 @@ class AZRTrainer:
         # Обновляем RewardComputer референсными данными
         self.reward_computer.update_reference(texts[:100])
 
+        # Always create optimizer/scheduler first
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=0.01)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_iterations)
+
         # Resume from checkpoint if provided
         if resume_from and Path(resume_from).exists():
             print(f"Resuming from checkpoint: {resume_from}")
             checkpoint = self.load_checkpoint(resume_from, load_optimizer=True)
             print(f"Resumed from iteration {self.iteration}")
-        else:
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=0.01)
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_iterations)
 
         # Запускаем аналитику
         if self.analytics:

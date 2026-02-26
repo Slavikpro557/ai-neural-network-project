@@ -359,7 +359,16 @@
                 </div>
             </div>
             <button class="btn btn-primary" onclick="startTraining()" data-i18n="btn_start_training">Начать обучение</button>
+            <button class="btn btn-success" onclick="resumeTraining()" data-i18n="btn_resume_training">Продолжить</button>
             <button class="btn btn-danger" onclick="stopTraining()" data-i18n="btn_stop_training">Остановить</button>
+            <div id="live_gen_box" class="status-box" style="display:none;margin-top:15px;">
+                <h3 data-i18n="live_generation">🔮 Генерация в реальном времени</h3>
+                <div style="display:flex;gap:8px;margin-bottom:10px;">
+                    <input type="text" id="live_gen_prompt" placeholder="Привет" style="flex:1;" data-i18n-placeholder="prompt_placeholder">
+                    <button class="btn btn-outline btn-sm" onclick="liveGenerate()" data-i18n="btn_generate">Сгенерировать</button>
+                </div>
+                <div id="live_gen_output" style="min-height:40px;padding:10px;background:#0a0a1a;border-radius:8px;color:#ccc;font-size:0.9em;" data-i18n="text_placeholder">Текст появится здесь...</div>
+            </div>
 
             <div class="milestones" id="milestones">
                 <div class="milestone" data-pct="1"><div class="milestone-dot">1</div><span class="milestone-label" data-i18n="ms_start">Старт</span></div>
@@ -477,6 +486,18 @@
         <div id="models" class="tab-content">
             <h2 data-i18n="my_models">Мои модели</h2>
             <button class="btn btn-success" onclick="loadModelsList()" data-i18n="btn_refresh">Обновить</button>
+            <div class="info-card" style="margin-top:15px;">
+                <h3 data-i18n="upload_model_title">Загрузить модель</h3>
+                <div class="recommended" data-i18n="upload_model_hint">Загрузите .pt файл модели (state_dict или полный чекпоинт)</div>
+                <div style="display:flex;gap:10px;margin:10px 0;align-items:center;flex-wrap:wrap;">
+                    <input type="text" id="upload_model_name" placeholder="my_model" style="width:200px;" data-i18n-placeholder="placeholder_name">
+                    <input type="file" id="model_file_input" accept=".pt,.pth,.bin" style="display:none;" onchange="handleModelFileSelect()">
+                    <button class="btn btn-outline" onclick="document.getElementById('model_file_input').click()" data-i18n="btn_choose_file">Выбрать файл</button>
+                    <span id="model_file_name" style="color:#888;font-size:0.9em;" data-i18n="no_file_chosen">Файл не выбран</span>
+                </div>
+                <button class="btn btn-primary" onclick="uploadModel()" data-i18n="btn_upload_model">Загрузить модель</button>
+                <div id="upload_model_status"></div>
+            </div>
             <div id="models_list" style="margin-top:15px;"></div>
         </div>
     </div>
@@ -782,23 +803,52 @@ function initChart() {
     });
 }
 
-async function startTraining() {
-    const config = {
+function getTrainingConfig() {
+    return {
         model_name: document.getElementById('train_model_name').value,
         max_iterations: parseInt(document.getElementById('max_iterations').value),
         batch_size: parseInt(document.getElementById('batch_size').value),
         learning_rate: parseFloat(document.getElementById('learning_rate').value),
         save_every: parseInt(document.getElementById('save_every').value)
     };
+}
+
+async function startTraining() {
+    var config = getTrainingConfig();
     try {
         const resp = await fetch('/train', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(config)});
         const data = await resp.json();
-        if (data.status === 'success') { startStatusUpdates(); }
+        if (data.status === 'success') { startStatusUpdates(); document.getElementById('live_gen_box').style.display = 'block'; }
+        else { alert(data.detail || 'Error'); }
+    } catch(e) { alert(e.message); }
+}
+
+async function resumeTraining() {
+    var config = getTrainingConfig();
+    config.resume = true;
+    try {
+        const resp = await fetch('/train', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(config)});
+        const data = await resp.json();
+        if (data.status === 'success') { startStatusUpdates(); document.getElementById('live_gen_box').style.display = 'block'; }
         else { alert(data.detail || 'Error'); }
     } catch(e) { alert(e.message); }
 }
 
 async function stopTraining() { await fetch('/stop_training', {method:'POST'}); }
+
+var liveGenInterval = null;
+async function liveGenerate() {
+    var model = document.getElementById('train_model_name').value;
+    var prompt = document.getElementById('live_gen_prompt').value || 'Привет';
+    var el = document.getElementById('live_gen_output');
+    el.innerHTML = '<span style="color:#888;">' + t('generating') + '</span>';
+    try {
+        var resp = await fetch('/generate_live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model_name: model, prompt: prompt, max_length: 60, temperature: 0.9})});
+        if (!resp.ok) { el.textContent = 'Error: ' + resp.status; return; }
+        var data = await resp.json();
+        el.textContent = data.generated_text || 'N/A';
+    } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
 
 function startStatusUpdates() {
     if (statusInterval) clearInterval(statusInterval);
@@ -1042,6 +1092,7 @@ async function updateTrainingStatus() {
         const s = await resp.json();
         document.getElementById('is_training').textContent = s.is_training ? t('training_active') : t('training_idle');
         document.getElementById('is_training').style.color = s.is_training ? '#10b981' : '#888';
+        document.getElementById('live_gen_box').style.display = s.is_training ? 'block' : 'none';
         const pct = s.max_iterations > 0 ? (s.current_iteration / s.max_iterations * 100) : 0;
         document.getElementById('progress').style.width = pct.toFixed(1) + '%';
         document.getElementById('progress').textContent = pct.toFixed(1) + '%';
@@ -1070,9 +1121,11 @@ async function updateTrainingStatus() {
 
 // === GENERATION ===
 async function generateText() {
+    var promptVal = document.getElementById('prompt').value.trim();
+    if (!promptVal) { promptVal = document.getElementById('prompt').placeholder || 'Hello'; }
     const config = {
         model_name: document.getElementById('gen_model_name').value,
-        prompt: document.getElementById('prompt').value,
+        prompt: promptVal,
         max_length: parseInt(document.getElementById('max_length').value),
         temperature: parseFloat(document.getElementById('temperature').value),
         top_k: parseInt(document.getElementById('top_k').value)
@@ -1080,6 +1133,7 @@ async function generateText() {
     document.getElementById('generated_output').innerHTML = '<span style="color:#888;">' + t('generating') + '</span>';
     try {
         const resp = await fetch('/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(config)});
+        if (!resp.ok) { var err = await resp.text(); document.getElementById('generated_output').textContent = 'Error: ' + (resp.status === 500 ? JSON.parse(err).detail : err); return; }
         const data = await resp.json();
         if (data.token_details && data.token_details.length > 0) {
             document.getElementById('generated_output').innerHTML = data.token_details.map(function(t) {
@@ -1100,9 +1154,11 @@ async function generateText() {
 }
 
 async function generateBeforeAfter() {
+    var promptVal2 = document.getElementById('prompt').value.trim();
+    if (!promptVal2) { promptVal2 = document.getElementById('prompt').placeholder || 'Hello'; }
     const config = {
         model_name: document.getElementById('gen_model_name').value,
-        prompt: document.getElementById('prompt').value,
+        prompt: promptVal2,
         max_length: parseInt(document.getElementById('max_length').value),
         temperature: parseFloat(document.getElementById('temperature').value),
         top_k: parseInt(document.getElementById('top_k').value)
@@ -1112,6 +1168,7 @@ async function generateBeforeAfter() {
     document.getElementById('after_text').textContent = t('loading');
     try {
         const resp = await fetch('/generate_before_after', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(config)});
+        if (!resp.ok) { var err = await resp.text(); try { err = JSON.parse(err).detail; } catch(x) {} document.getElementById('before_text').textContent = 'Error: ' + err; return; }
         const data = await resp.json();
         document.getElementById('before_text').textContent = data.before ? data.before.text : 'N/A';
         document.getElementById('after_text').textContent = data.after ? data.after.text : 'N/A';
@@ -1132,12 +1189,16 @@ async function generateBeforeAfter() {
 async function loadCheckpoints() {
     var modelName = document.getElementById('compare_model_name').value;
     if (!modelName) return;
-    var resp = await fetch('/checkpoints/' + modelName);
-    var data = await resp.json();
-    ['checkpoint_a', 'checkpoint_b'].forEach(function(id) {
-        var sel = document.getElementById(id);
-        sel.innerHTML = data.checkpoints.map(function(c) { return '<option value="' + c.iteration + '">Iteration ' + c.iteration + ' (' + c.size_mb + ' MB)</option>'; }).join('');
-    });
+    try {
+        var resp = await fetch('/checkpoints/' + modelName);
+        if (!resp.ok) return;
+        var data = await resp.json();
+        var opts = data.checkpoints.map(function(c) { return '<option value="' + c.iteration + '">Iteration ' + c.iteration + ' (' + c.size_mb + ' MB)</option>'; }).join('');
+        if (!opts) opts = '<option value="">(' + t('no_data') + ')</option>';
+        ['checkpoint_a', 'checkpoint_b'].forEach(function(id) {
+            document.getElementById(id).innerHTML = opts;
+        });
+    } catch(e) {}
 }
 
 async function compareCheckpoints() {
@@ -1151,6 +1212,7 @@ async function compareCheckpoints() {
     document.getElementById('compare_text_b').textContent = t('generating');
     try {
         var resp = await fetch('/compare_generations', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model_name: model, prompt: prompt, iterations: [iterA, iterB], max_length: 100})});
+        if (!resp.ok) { var err = await resp.text(); try { err = JSON.parse(err).detail; } catch(x) {} document.getElementById('compare_text_a').textContent = 'Error: ' + err; return; }
         var data = await resp.json();
         if (data.comparisons && data.comparisons.length >= 2) {
             var a = data.comparisons[0], b = data.comparisons[1];
@@ -1233,6 +1295,32 @@ async function deleteModel(name) {
             loadModelsSelect();
         }
     } catch(e) { alert('Error: ' + e.message); }
+}
+
+function handleModelFileSelect() {
+    var input = document.getElementById('model_file_input');
+    document.getElementById('model_file_name').textContent = input.files.length ? input.files[0].name : t('no_file_chosen');
+}
+
+async function uploadModel() {
+    var name = document.getElementById('upload_model_name').value.trim();
+    var input = document.getElementById('model_file_input');
+    var statusDiv = document.getElementById('upload_model_status');
+    if (!name) { alert(t('enter_model_name')); return; }
+    if (!input.files.length) { alert(t('no_file_chosen')); return; }
+    statusDiv.innerHTML = '<div class="alert alert-info">' + t('loading') + '</div>';
+    var formData = new FormData();
+    formData.append('file', input.files[0]);
+    try {
+        var resp = await fetch('/upload_model/' + encodeURIComponent(name), { method: 'POST', body: formData });
+        if (!resp.ok) { var err = await resp.text(); try { err = JSON.parse(err).detail; } catch(x) {} statusDiv.innerHTML = '<div class="alert alert-error">Error: ' + err + '</div>'; return; }
+        var data = await resp.json();
+        statusDiv.innerHTML = '<div class="alert alert-success">' + (data.message || 'OK') + '</div>';
+        loadModelsList();
+        loadModelsSelect();
+        input.value = '';
+        document.getElementById('model_file_name').textContent = t('no_file_chosen');
+    } catch(e) { statusDiv.innerHTML = '<div class="alert alert-error">Error: ' + e.message + '</div>'; }
 }
 
 // === WIZARD ===
@@ -1363,6 +1451,11 @@ var TRANSLATIONS = {
         hw_cpu_quick: '{mem} GB RAM, CPU — только быстрые тесты',
         btn_delete_ds: 'Удалить',
         confirm_delete_ds: 'Удалить датасет "{name}"? Он будет откреплён от всех моделей.',
+        btn_resume_training: 'Продолжить',
+        live_generation: '🔮 Генерация в реальном времени',
+        upload_model_title: 'Загрузить модель',
+        upload_model_hint: 'Загрузите .pt файл модели (state_dict или полный чекпоинт)',
+        btn_upload_model: 'Загрузить модель',
         status_idle: 'Не запущено',
         checkpoint_a_label: 'Чекпоинт A:',
         checkpoint_b_label: 'Чекпоинт B:',
@@ -1526,6 +1619,11 @@ var TRANSLATIONS = {
         hw_cpu_quick: '{mem} GB RAM, CPU — quick tests only',
         btn_delete_ds: 'Delete',
         confirm_delete_ds: 'Delete dataset "{name}"? It will be detached from all models.',
+        btn_resume_training: 'Resume',
+        live_generation: '🔮 Live Generation',
+        upload_model_title: 'Upload Model',
+        upload_model_hint: 'Upload a .pt model file (state_dict or full checkpoint)',
+        btn_upload_model: 'Upload Model',
         status_idle: 'Not running',
         checkpoint_a_label: 'Checkpoint A:',
         checkpoint_b_label: 'Checkpoint B:',
