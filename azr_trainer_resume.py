@@ -509,6 +509,14 @@ class AZRTrainer:
                 'timestamp': datetime.now().isoformat()
             }
 
+            # Сохраняем токенизатор в чекпоинт для портабельности
+            if hasattr(self, 'tokenizer') and self.tokenizer is not None:
+                checkpoint['tokenizer_data'] = {
+                    'token_to_id': self.tokenizer.token_to_id,
+                    'id_to_token': {str(k): v for k, v in self.tokenizer.id_to_token.items()},
+                    'vocab_size': self.tokenizer.vocab_size
+                }
+
             if save_optimizer and self.optimizer is not None:
                 checkpoint['optimizer_state_dict'] = self.optimizer.state_dict()
                 if self.scheduler is not None:

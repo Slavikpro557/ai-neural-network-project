@@ -1136,14 +1136,59 @@ async def upload_model(model_name: str, file: UploadFile = File(...)):
                     json.dump(model_config, f, indent=2, ensure_ascii=False)
                 torch.save(state_dict, model_dir / "model.pt")
 
-                # Создаём пустой токенизатор
-                tokenizer = SimpleTokenizer(vocab_size=model_config['vocab_size'])
-                tokenizer.save(model_dir / "tokenizer.pkl")
+                # Ищем токенизатор: 1) в чекпоинте, 2) от существующей модели, 3) пустой
+                tokenizer_found = False
+                tokenizer_source = "empty"
+
+                # 1) Токенизатор в чекпоинте (если checkpoint, а не state_dict)
+                if isinstance(ckpt, dict) and 'tokenizer_data' in ckpt:
+                    tokenizer = SimpleTokenizer(vocab_size=model_config['vocab_size'])
+                    tok_data = ckpt['tokenizer_data']
+                    tokenizer.token_to_id = tok_data.get('token_to_id', {})
+                    tokenizer.id_to_token = {int(k): v for k, v in tok_data.get('id_to_token', {}).items()}
+                    tokenizer.save(model_dir / "tokenizer.pkl")
+                    tokenizer_found = True
+                    tokenizer_source = "checkpoint"
+
+                # 2) Копируем от существующей модели с таким же vocab_size
+                if not tokenizer_found:
+                    for existing_model in MODELS_DIR.iterdir():
+                        if existing_model.is_dir() and existing_model.name != model_name:
+                            tok_path = existing_model / "tokenizer.pkl"
+                            cfg_path = existing_model / "config.json"
+                            if tok_path.exists() and cfg_path.exists():
+                                try:
+                                    with open(cfg_path, 'r', encoding='utf-8') as f:
+                                        ecfg = json.load(f)
+                                    if ecfg.get('vocab_size') == model_config['vocab_size']:
+                                        existing_tok = SimpleTokenizer.load(tok_path)
+                                        if len(existing_tok.token_to_id) > len(SimpleTokenizer(model_config['vocab_size']).token_to_id):
+                                            shutil.copy2(tok_path, model_dir / "tokenizer.pkl")
+                                            tokenizer_found = True
+                                            tokenizer_source = existing_model.name
+                                            break
+                                except Exception:
+                                    pass
+
+                # 3) Пустой токенизатор (последний вариант)
+                if not tokenizer_found:
+                    tokenizer = SimpleTokenizer(vocab_size=model_config['vocab_size'])
+                    tokenizer.save(model_dir / "tokenizer.pkl")
+                    tokenizer_source = "empty"
+
+                tok_msg = ""
+                if tokenizer_source == "empty":
+                    tok_msg = " ⚠️ No tokenizer found — upload tokenizer.pkl separately"
+                elif tokenizer_source == "checkpoint":
+                    tok_msg = " ✅ Tokenizer from checkpoint"
+                else:
+                    tok_msg = f" ✅ Tokenizer from '{tokenizer_source}'"
 
                 return {
                     "status": "success",
-                    "message": f"Model '{model_name}' created from uploaded file ({model_config['d_model']}d / {model_config['num_layers']} layers / {model_config['vocab_size']} vocab)",
+                    "message": f"Model '{model_name}' created ({model_config['d_model']}d / {model_config['num_layers']} layers / {model_config['vocab_size']} vocab).{tok_msg}",
                     "config": model_config,
+                    "tokenizer_source": tokenizer_source,
                     "size": model_path.stat().st_size
                 }
             else:
@@ -1177,6 +1222,31 @@ async def upload_model(model_name: str, file: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/upload_tokenizer/{model_name}")
+async def upload_tokenizer(model_name: str, file: UploadFile = File(...)):
+    """Загрузить токенизатор для модели"""
+    model_dir = MODELS_DIR / model_name
+    if not model_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+
+    tok_path = model_dir / "tokenizer.pkl"
+    with open(tok_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Проверяем что файл валидный
+    try:
+        tokenizer = SimpleTokenizer.load(tok_path)
+        vocab_count = len(tokenizer.token_to_id)
+        return {
+            "status": "success",
+            "message": f"Tokenizer uploaded for '{model_name}' ({vocab_count} tokens)",
+            "vocab_count": vocab_count
+        }
+    except Exception as e:
+        tok_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Invalid tokenizer file: {str(e)}")
 
 
 # === System Info ===

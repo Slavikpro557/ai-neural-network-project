@@ -495,7 +495,13 @@
                     <button class="btn btn-outline" onclick="document.getElementById('model_file_input').click()" data-i18n="btn_choose_file">Выбрать файл</button>
                     <span id="model_file_name" style="color:#888;font-size:0.9em;" data-i18n="no_file_chosen">Файл не выбран</span>
                 </div>
-                <button class="btn btn-primary" onclick="uploadModel()" data-i18n="btn_upload_model">Загрузить модель</button>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="uploadModel()" data-i18n="btn_upload_model">Загрузить модель</button>
+                    <span style="color:#666;">|</span>
+                    <input type="file" id="tokenizer_file_input" accept=".pkl" style="display:none;" onchange="handleTokenizerSelect()">
+                    <button class="btn btn-outline btn-sm" onclick="document.getElementById('tokenizer_file_input').click()" data-i18n="btn_upload_tokenizer">+ Токенизатор (.pkl)</button>
+                    <span id="tokenizer_file_name" style="color:#888;font-size:0.85em;"></span>
+                </div>
                 <div id="upload_model_status"></div>
             </div>
             <div id="models_list" style="margin-top:15px;"></div>
@@ -1361,6 +1367,33 @@ function uploadModel() {
     xhr.send(formData);
 }
 
+function handleTokenizerSelect() {
+    var input = document.getElementById('tokenizer_file_input');
+    if (input.files.length) {
+        var file = input.files[0];
+        document.getElementById('tokenizer_file_name').textContent = file.name;
+        // Сразу загружаем если имя модели указано
+        var name = document.getElementById('upload_model_name').value.trim();
+        if (name) { uploadTokenizer(name, file); }
+        else { document.getElementById('upload_model_status').innerHTML = '<div class="alert alert-info">' + t('tokenizer_enter_name') + '</div>'; }
+    }
+}
+
+async function uploadTokenizer(modelName, file) {
+    var statusDiv = document.getElementById('upload_model_status');
+    statusDiv.innerHTML = '<div class="alert alert-info">' + t('uploading_tokenizer') + '</div>';
+    var formData = new FormData();
+    formData.append('file', file);
+    try {
+        var resp = await fetch('/upload_tokenizer/' + encodeURIComponent(modelName), { method: 'POST', body: formData });
+        if (!resp.ok) { var err = await resp.text(); try { err = JSON.parse(err).detail; } catch(x) {} statusDiv.innerHTML = '<div class="alert alert-error">❌ ' + err + '</div>'; return; }
+        var data = await resp.json();
+        statusDiv.innerHTML = '<div class="alert alert-success">✅ ' + (data.message || 'OK') + '</div>';
+        document.getElementById('tokenizer_file_input').value = '';
+        document.getElementById('tokenizer_file_name').textContent = '';
+    } catch(e) { statusDiv.innerHTML = '<div class="alert alert-error">❌ ' + e.message + '</div>'; }
+}
+
 // === WIZARD ===
 async function checkWizard() {
     try {
@@ -1497,6 +1530,9 @@ var TRANSLATIONS = {
         uploading_model: 'Загрузка модели',
         upload_complete: 'Модель загружена успешно',
         upload_network_error: 'Ошибка сети при загрузке',
+        btn_upload_tokenizer: '+ Токенизатор (.pkl)',
+        uploading_tokenizer: 'Загрузка токенизатора...',
+        tokenizer_enter_name: 'Сначала введите название модели, затем загрузите токенизатор',
         status_idle: 'Не запущено',
         checkpoint_a_label: 'Чекпоинт A:',
         checkpoint_b_label: 'Чекпоинт B:',
@@ -1668,6 +1704,9 @@ var TRANSLATIONS = {
         uploading_model: 'Uploading model',
         upload_complete: 'Model uploaded successfully',
         upload_network_error: 'Network error during upload',
+        btn_upload_tokenizer: '+ Tokenizer (.pkl)',
+        uploading_tokenizer: 'Uploading tokenizer...',
+        tokenizer_enter_name: 'Enter model name first, then upload tokenizer',
         status_idle: 'Not running',
         checkpoint_a_label: 'Checkpoint A:',
         checkpoint_b_label: 'Checkpoint B:',
