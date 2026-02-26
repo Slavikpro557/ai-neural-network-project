@@ -314,6 +314,32 @@ async def detach_dataset(config: DetachDatasetConfig):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/delete_dataset/{dataset_name}")
+async def delete_dataset_endpoint(dataset_name: str):
+    """Удалить датасет из системы и с диска"""
+    try:
+        # Получить путь к файлу до удаления из БД
+        file_path = None
+        if dataset_name in dataset_manager.db["datasets"]:
+            file_path = dataset_manager.db["datasets"][dataset_name].get("path")
+
+        success = dataset_manager.delete_dataset(dataset_name)
+        if not success:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+        # Удалить файл с диска
+        if file_path:
+            p = Path(file_path)
+            if p.exists():
+                p.unlink()
+
+        return {"status": "success", "message": f"Dataset '{dataset_name}' deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/model_datasets/{model_name}")
 async def get_model_datasets(model_name: str):
     try:
@@ -1073,19 +1099,31 @@ async def get_hardware_recommendation():
 
     if has_gpu and gpu_mem_gb >= 8:
         preset = "quality"
-        reason = f"GPU {torch.cuda.get_device_name(0)} ({gpu_mem_gb:.0f} GB) — можно обучать большие модели"
+        gpu_name = torch.cuda.get_device_name(0)
+        reason_key = "hw_gpu_large"
+        reason_params = {"name": gpu_name, "mem": f"{gpu_mem_gb:.0f}"}
+        reason = f"GPU {gpu_name} ({gpu_mem_gb:.0f} GB) — can train large models"
     elif has_gpu and gpu_mem_gb >= 4:
         preset = "standard"
-        reason = f"GPU {torch.cuda.get_device_name(0)} ({gpu_mem_gb:.0f} GB) — стандартные модели"
+        gpu_name = torch.cuda.get_device_name(0)
+        reason_key = "hw_gpu_standard"
+        reason_params = {"name": gpu_name, "mem": f"{gpu_mem_gb:.0f}"}
+        reason = f"GPU {gpu_name} ({gpu_mem_gb:.0f} GB) — standard models"
     elif has_gpu:
         preset = "quick"
-        reason = f"GPU с {gpu_mem_gb:.0f} GB — только маленькие модели"
+        reason_key = "hw_gpu_small"
+        reason_params = {"mem": f"{gpu_mem_gb:.0f}"}
+        reason = f"GPU with {gpu_mem_gb:.0f} GB — small models only"
     elif ram_gb >= 16:
         preset = "standard"
-        reason = f"{ram_gb:.0f} GB RAM, CPU — стандартные модели (медленно)"
+        reason_key = "hw_cpu_standard"
+        reason_params = {"mem": f"{ram_gb:.0f}"}
+        reason = f"{ram_gb:.0f} GB RAM, CPU — standard models (slow)"
     else:
         preset = "quick"
-        reason = f"{ram_gb:.0f} GB RAM, CPU — только быстрые тесты"
+        reason_key = "hw_cpu_quick"
+        reason_params = {"mem": f"{ram_gb:.0f}"}
+        reason = f"{ram_gb:.0f} GB RAM, CPU — quick tests only"
 
     presets = {
         "quick": {
@@ -1108,6 +1146,8 @@ async def get_hardware_recommendation():
     return {
         "preset": preset,
         "reason": reason,
+        "reason_key": reason_key,
+        "reason_params": reason_params,
         "config": presets[preset],
         "has_gpu": has_gpu,
         "gpu_memory_gb": round(gpu_mem_gb, 1),

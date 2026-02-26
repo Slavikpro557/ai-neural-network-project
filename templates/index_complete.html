@@ -37,6 +37,7 @@
         .btn-success:hover { background: #059669; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
+        .btn-sm { padding: 4px 8px; font-size: 12px; min-width: auto; }
         .btn-outline { background: transparent; color: #667eea; border: 1px solid #667eea; }
         .btn-outline:hover { background: #667eea22; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -257,17 +258,17 @@
                     <div class="preset-card" onclick="applyPreset('quick')" id="preset_quick">
                         <h4 data-i18n="preset_quick">Быстрый тест</h4>
                         <p class="preset-desc" data-i18n="preset_quick_desc">~5 минут, базовое качество</p>
-                        <p class="preset-specs">128d / 4 layers / 1K iter</p>
+                        <p class="preset-specs" data-i18n="preset_quick_specs">128d / 4 слоя / 1K итер</p>
                     </div>
                     <div class="preset-card" onclick="applyPreset('standard')" id="preset_standard">
                         <h4 data-i18n="preset_standard">Стандарт</h4>
                         <p class="preset-desc" data-i18n="preset_standard_desc">~2 часа, хорошее качество</p>
-                        <p class="preset-specs">256d / 6 layers / 10K iter</p>
+                        <p class="preset-specs" data-i18n="preset_standard_specs">256d / 6 слоёв / 10K итер</p>
                     </div>
                     <div class="preset-card" onclick="applyPreset('quality')" id="preset_quality">
                         <h4 data-i18n="preset_quality">Качество</h4>
                         <p class="preset-desc" data-i18n="preset_quality_desc">~24 часа, лучший результат</p>
-                        <p class="preset-specs">512d / 12 layers / 100K iter</p>
+                        <p class="preset-specs" data-i18n="preset_quality_specs">512d / 12 слоёв / 100K итер</p>
                     </div>
                 </div>
                 <div id="hw_recommendation" style="margin-top:10px;"></div>
@@ -634,7 +635,13 @@ async function loadHWRecommendation() {
     try {
         const resp = await fetch('/hardware_recommendation');
         const data = await resp.json();
-        document.getElementById('hw_recommendation').innerHTML = '<div class="alert alert-info">' + t('hw_recommendation') + ': <strong>' + data.preset.toUpperCase() + '</strong> — ' + data.reason + '</div>';
+        var reason = t(data.reason_key) || data.reason;
+        if (data.reason_params) {
+            Object.keys(data.reason_params).forEach(function(k) {
+                reason = reason.replace('{' + k + '}', data.reason_params[k]);
+            });
+        }
+        document.getElementById('hw_recommendation').innerHTML = '<div class="alert alert-info">' + t('hw_recommendation') + ': <strong>' + data.preset.toUpperCase() + '</strong> — ' + reason + '</div>';
     } catch(e) {}
 }
 
@@ -693,13 +700,14 @@ async function loadDatasets() {
     var modelSel = document.getElementById('dataset_model_name');
     var modelName = modelSel ? modelSel.value : '';
     if (!modelName) {
-        // No model selected — show all datasets without attach buttons
+        // No model selected — show all datasets with delete buttons
         var resp = await fetch('/books');
         var data = await resp.json();
         var div = document.getElementById('available_datasets');
         if (div) {
             div.innerHTML = data.books.map(function(b) {
-                return '<div class="dataset-item"><span>' + (b.name||b) + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span></div>';
+                var n = b.name||b;
+                return '<div class="dataset-item"><span>' + n + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span><button class="btn btn-danger btn-sm" onclick="deleteDS(\'' + n.replace(/'/g,"\\'") + '\')" title="' + t('btn_delete_ds') + '">✕</button></div>';
             }).join('') || '<p style="color:#666;">' + t('no_datasets') + '</p>';
         }
         var attDiv = document.getElementById('attached_datasets');
@@ -720,7 +728,8 @@ async function loadDatasets() {
         var avDiv = document.getElementById('available_datasets');
         if (avDiv) {
             avDiv.innerHTML = md.available.map(function(b) {
-                return '<div class="dataset-item"><span>' + (b.name||b) + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span><button class="btn btn-primary" onclick="attachDS(\'' + (b.name||b).replace(/'/g,"\\'") + '\')">' + t('btn_attach') + '</button></div>';
+                var n = b.name||b;
+                return '<div class="dataset-item"><span>' + n + ' (' + ((b.size||0)/1024).toFixed(1) + ' KB)</span><div><button class="btn btn-primary" onclick="attachDS(\'' + n.replace(/'/g,"\\'") + '\')">' + t('btn_attach') + '</button> <button class="btn btn-danger btn-sm" onclick="deleteDS(\'' + n.replace(/'/g,"\\'") + '\')" title="' + t('btn_delete_ds') + '">✕</button></div></div>';
             }).join('') || '<p style="color:#666;">' + t('no_datasets') + '</p>';
         }
     } catch(e) { console.error('loadDatasets error:', e); }
@@ -737,6 +746,13 @@ async function attachDS(name) {
 async function detachDS(name) {
     var modelName = document.getElementById('dataset_model_name').value;
     await fetch('/detach_dataset', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({model_name: modelName, dataset_name: name})});
+    loadDatasets();
+}
+
+async function deleteDS(name) {
+    var msg = (t('confirm_delete_ds') || 'Delete dataset "{name}"?').replace('{name}', name);
+    if (!confirm(msg)) return;
+    await fetch('/delete_dataset/' + encodeURIComponent(name), { method:'DELETE' });
     loadDatasets();
 }
 
@@ -1275,8 +1291,11 @@ var TRANSLATIONS = {
         choose_preset: 'Выберите пресет',
         preset_quick: 'Быстрый тест', preset_standard: 'Стандарт', preset_quality: 'Качество',
         preset_quick_desc: '~5 минут, базовое качество',
+        preset_quick_specs: '128d / 4 слоя / 1K итер',
         preset_standard_desc: '~2 часа, хорошее качество',
+        preset_standard_specs: '256d / 6 слоёв / 10K итер',
         preset_quality_desc: '~24 часа, лучший результат',
+        preset_quality_specs: '512d / 12 слоёв / 100K итер',
         model_name: 'Название модели:',
         tip_vocab: 'Размер словаря. 10000-25000 оптимально.',
         tip_dmodel: 'Размерность модели. Больше = умнее но медленнее.',
@@ -1337,6 +1356,13 @@ var TRANSLATIONS = {
         preview: 'Превью',
         btn_close: 'Закрыть',
         hw_recommendation: 'Рекомендация',
+        hw_gpu_large: 'GPU {name} ({mem} GB) — можно обучать большие модели',
+        hw_gpu_standard: 'GPU {name} ({mem} GB) — стандартные модели',
+        hw_gpu_small: 'GPU с {mem} GB — только маленькие модели',
+        hw_cpu_standard: '{mem} GB RAM, CPU — стандартные модели (медленно)',
+        hw_cpu_quick: '{mem} GB RAM, CPU — только быстрые тесты',
+        btn_delete_ds: 'Удалить',
+        confirm_delete_ds: 'Удалить датасет "{name}"? Он будет откреплён от всех моделей.',
         status_idle: 'Не запущено',
         checkpoint_a_label: 'Чекпоинт A:',
         checkpoint_b_label: 'Чекпоинт B:',
@@ -1428,8 +1454,11 @@ var TRANSLATIONS = {
         choose_preset: 'Choose a preset',
         preset_quick: 'Quick Test', preset_standard: 'Standard', preset_quality: 'Quality',
         preset_quick_desc: '~5 minutes, basic quality',
+        preset_quick_specs: '128d / 4 layers / 1K iter',
         preset_standard_desc: '~2 hours, good quality',
+        preset_standard_specs: '256d / 6 layers / 10K iter',
         preset_quality_desc: '~24 hours, best results',
+        preset_quality_specs: '512d / 12 layers / 100K iter',
         model_name: 'Model name:',
         tip_vocab: 'Vocabulary size. 10000-25000 is optimal.',
         tip_dmodel: 'Model dimension. Larger = smarter but slower.',
@@ -1490,6 +1519,13 @@ var TRANSLATIONS = {
         preview: 'Preview',
         btn_close: 'Close',
         hw_recommendation: 'Recommendation',
+        hw_gpu_large: 'GPU {name} ({mem} GB) — can train large models',
+        hw_gpu_standard: 'GPU {name} ({mem} GB) — standard models',
+        hw_gpu_small: 'GPU with {mem} GB — small models only',
+        hw_cpu_standard: '{mem} GB RAM, CPU — standard models (slow)',
+        hw_cpu_quick: '{mem} GB RAM, CPU — quick tests only',
+        btn_delete_ds: 'Delete',
+        confirm_delete_ds: 'Delete dataset "{name}"? It will be detached from all models.',
         status_idle: 'Not running',
         checkpoint_a_label: 'Checkpoint A:',
         checkpoint_b_label: 'Checkpoint B:',
@@ -1575,6 +1611,8 @@ function switchLanguage(lang) {
     REWARD_LABELS = getRewardLabels();
     // Re-render dynamic tabs that use t() and currentLang
     if (typeof currentCategory !== 'undefined') loadCatalog(currentCategory);
+    loadHWRecommendation();
+    loadDatasets();
     checkGPUStatus();
 }
 
