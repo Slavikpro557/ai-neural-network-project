@@ -36,9 +36,9 @@ class TextDataset(Dataset):
 class AZRTrainer:
     def __init__(self, model, tokenizer, device='cuda' if torch.cuda.is_available() else 'cpu',
                  status_callback=None, rl_weight=0.1):
-        self.model = model.to(device)
+        self.device = torch.device(device)
+        self.model = model.to(self.device)
         self.tokenizer = tokenizer
-        self.device = device
         self.training_history = []
         self.iteration = 0
         self.status_callback = status_callback

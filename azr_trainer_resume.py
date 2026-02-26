@@ -51,9 +51,9 @@ class AZRTrainer:
                  status_callback=None,
                  reward_computer=None,
                  analytics=None):
-        self.model = model.to(device)
+        self.device = torch.device(device)
+        self.model = model.to(self.device)
         self.tokenizer = tokenizer
-        self.device = device
         self.training_history = []
         self.iteration = 0
         self.status_callback = status_callback
@@ -172,7 +172,7 @@ class AZRTrainer:
     def _get_memory_mb(self) -> float:
         """Получить использование памяти"""
         try:
-            if torch.cuda.is_available() and self.device != 'cpu':
+            if torch.cuda.is_available() and self.device.type != 'cpu':
                 return torch.cuda.memory_allocated() / (1024 * 1024)
             else:
                 try:
